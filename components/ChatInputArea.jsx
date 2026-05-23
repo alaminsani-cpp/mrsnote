@@ -43,7 +43,7 @@ const ChatInputArea = ({
           onKeyDown={handleKeyDown}
           placeholder="Write a message…"
           rows={1}
-          className="flex-1 bg-white/5 border border-[#38281e] rounded-3xl px-4 py-2.5 text-[#f0e0d0] font-serif text-sm resize-none max-h-28 outline-none"
+          className="flex-1 bg-white/5 border border-[#38281e] rounded-3xl px-4 py-2.5 text-[#f0e0d0] font-serif text-sm resize-none max-h-28 outline-none overscroll-none"
         />
         <button onClick={onSend} className="w-11 h-11 rounded-full bg-gradient-to-br from-[#4a7c59] to-[#2e5239] text-white flex items-center justify-center shadow-md active:scale-95 transition">
           ➤

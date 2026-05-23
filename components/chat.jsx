@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   db, ref, push, onChildAdded, onChildChanged, set, onValue, onDisconnect,
-  orderByKey, limitToLast, endBefore, get
+  orderByKey, limitToLast, endBefore, startAfter, query, get
 } from '../src/firebase';
 import ChatHeader from './ChatHeader';
 import ChatMessageList from './ChatMessageList';
@@ -30,6 +30,9 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const [hasMore, setHasMore] = useState(true);
   const messagesContainerRef = useRef(null);
   const initialLoadDone = useRef(false);
+  const lastLoadedKeyRef = useRef(null); // tracks newest key from initial get() to scope realtime listener
+  const isInitialLoad = useRef(true);    // true until first messages render at bottom
+  const prevScrollHeightRef = useRef(0); // used to preserve scroll pos when loading older msgs
   const chatRoom = 'privateChats/secret_blossom_chat';
 
   // Custom hooks
@@ -60,22 +63,23 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     if (loadingOlder) return;
     setLoadingOlder(true);
     try {
-      let query = orderByKey(messagesRef);
-      if (lastKey) {
-        query = endBefore(query, lastKey);
-      }
-      query = limitToLast(query, 20);
-      const snapshot = await get(query);
+      // Firebase modular SDK: constraints are passed into query() — not chained
+      const constraints = [orderByKey()];
+      if (lastKey) constraints.push(endBefore(lastKey));
+      constraints.push(limitToLast(20));
+      const q = query(messagesRef, ...constraints);
+      const snapshot = await get(q);
       const newMessages = [];
       snapshot.forEach(child => {
         newMessages.push({ id: child.key, ...child.val() });
       });
-      // Reverse to oldest first
-      newMessages.reverse();
+      // limitToLast returns messages in ascending key order (oldest → newest).
+      // Keep that order — newest message is last, so it renders at the bottom.
       if (newMessages.length < 20) setHasMore(false);
-      
+
       setMessages(prev => {
-        const all = [...newMessages, ...prev];
+        // Older messages prepend to the front; dedup by id
+        const all = lastKey ? [...newMessages, ...prev] : [...prev, ...newMessages];
         const unique = [];
         const ids = new Set();
         for (const msg of all) {
@@ -84,8 +88,24 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
             unique.push(msg);
           }
         }
+        // Always keep final array sorted oldest → newest by Firebase push key
+        unique.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
         return unique;
       });
+
+      // On initial load (no lastKey), record the newest key so the realtime
+      // listener is scoped to only future messages (avoids replaying history).
+      // Use '' as sentinel when DB is empty — means "listen from start".
+      if (!lastKey) {
+        lastLoadedKeyRef.current =
+          newMessages.length > 0 ? newMessages[newMessages.length - 1].id : '';
+        // Signal that we need to jump to bottom after this render
+        isInitialLoad.current = true;
+      } else {
+        // Loading older messages — save current scrollHeight so we can
+        // restore the visual position after the new messages are rendered.
+        prevScrollHeightRef.current = messagesContainerRef.current?.scrollHeight || 0;
+      }
     } catch (error) {
       console.error('Failed to load messages:', error);
     } finally {
@@ -100,11 +120,25 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     loadMessages();
   }, [isOpen, currentUser]);
 
-  // Real‑time new messages listener (appends at the end)
+  // Real-time NEW messages listener — scoped to keys AFTER the initial get().
+  // This prevents onChildAdded from replaying the entire message history on mount,
+  // which was the cause of the 8-second load delay.
   useEffect(() => {
     if (!isOpen || !currentUser) return;
-    const unsubscribe = onChildAdded(messagesRef, (snap) => {
+
+    // null means the initial get() hasn't returned yet — don't attach listener yet.
+    if (lastLoadedKeyRef.current === null) return;
+
+    // '' means the DB was empty on load — listen to everything from the start.
+    // Otherwise scope to keys strictly after the last fetched message.
+    const newMsgsQuery = lastLoadedKeyRef.current === ''
+      ? query(messagesRef, orderByKey())
+      : query(messagesRef, orderByKey(), startAfter(lastLoadedKeyRef.current));
+
+    const unsubscribe = onChildAdded(newMsgsQuery, (snap) => {
       const msg = { id: snap.key, ...snap.val() };
+      // Update lastLoadedKeyRef so the cursor advances with each new message.
+      lastLoadedKeyRef.current = snap.key;
       setMessages(prev => {
         if (prev.some(m => m.id === msg.id)) return prev;
         return [...prev, msg];
@@ -113,7 +147,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       if (msg.role !== currentUser.role) markAsRead(msg.id);
     });
     return () => unsubscribe();
-  }, [isOpen, currentUser]);
+  }, [isOpen, currentUser, lastLoadedKeyRef.current]);
 
   // Message updates (reactions, readBy, etc.)
   useEffect(() => {
@@ -177,7 +211,33 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     };
   }, [isOpen, currentUser]);
 
-  // Scroll to top detection -> load older messages
+  // WhatsApp-style scroll behaviour:
+  //   1. Initial load  → instantly jump to bottom (no animation)
+  //   2. New message   → scroll to bottom only if user was already near the bottom
+  //   3. Older msgs    → preserve scroll position (don't jump to top)
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || messages.length === 0) return;
+
+    if (isInitialLoad.current) {
+      // Jump instantly to the very bottom — user opens chat and sees latest messages
+      container.scrollTop = container.scrollHeight;
+      isInitialLoad.current = false;
+    } else if (prevScrollHeightRef.current > 0) {
+      // Older messages were prepended — restore scroll so the view doesn't jump
+      const newScrollHeight = container.scrollHeight;
+      container.scrollTop = newScrollHeight - prevScrollHeightRef.current;
+      prevScrollHeightRef.current = 0;
+    } else {
+      // New message arrived — only auto-scroll if user is within 150px of bottom
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceFromBottom < 150) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+  }, [messages]);
+
+  // Scroll to top detection → load older messages
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
