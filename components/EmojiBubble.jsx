@@ -1,3 +1,4 @@
+// src/components/EmojiBubble.jsx
 import React from 'react';
 
 const isEmojiOnly = (text) => {
@@ -5,7 +6,7 @@ const isEmojiOnly = (text) => {
   return /^[\p{Emoji}\s\u200d\uFE0F\u20E3\uD83C\uDFFB-\uD83C\uDFFF]+$/u.test(text) && text.trim().length <= 10;
 };
 
-const EmojiBubble = ({ text, role, isSent, replyTo }) => {
+const EmojiBubble = ({ text, role, isSent, replyTo, children }) => {
   const isEmoji = isEmojiOnly(text);
   
   const bubbleClasses = `px-3 py-2 rounded-2xl font-serif break-words ${
@@ -18,6 +19,9 @@ const EmojiBubble = ({ text, role, isSent, replyTo }) => {
     isEmoji ? '!bg-transparent !text-4xl !px-2 !py-1' : ''
   }`;
 
+  // Use children if provided, otherwise fall back to plain text
+  const content = children !== undefined ? children : text;
+
   return (
     <div className={bubbleClasses}>
       {replyTo && (
@@ -26,7 +30,7 @@ const EmojiBubble = ({ text, role, isSent, replyTo }) => {
           <div className="truncate max-w-[180px]">{replyTo.text}</div>
         </div>
       )}
-      <span className={isEmoji ? 'block text-center' : ''}>{text}</span>
+      <span className={isEmoji ? 'block text-center' : ''}>{content}</span>
     </div>
   );
 };

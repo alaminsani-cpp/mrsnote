@@ -54,14 +54,41 @@ const ChatMessage = ({
 
   const formatTime = (ts) => new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
-  // Highlight search query in text
-  const highlightText = (text, query) => {
-    if (!query || query.trim() === '') return text;
-    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    const parts = text.split(regex);
-    return parts.map((part, i) =>
-      regex.test(part) ? <mark key={i} className="bg-yellow-600/50 text-white rounded px-0.5">{part}</mark> : part
-    );
+  // Render text with clickable links and optional search highlight
+  const renderText = (text, query) => {
+    const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+\.[^\s]+)/gi;
+    const segments = text.split(URL_REGEX);
+
+    return segments.map((segment, i) => {
+      const isUrl = URL_REGEX.test(segment);
+      URL_REGEX.lastIndex = 0; // reset after test
+
+      if (isUrl) {
+        const href = segment.startsWith('http') ? segment : `https://${segment}`;
+        return (
+          <a
+            key={i}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="underline underline-offset-2 text-[#7ecf9a] hover:text-[#a8e6be] break-all transition-colors duration-150"
+          >
+            {segment}
+          </a>
+        );
+      }
+
+      // Apply search highlight to non-URL segments
+      if (!query || query.trim() === '') return segment;
+      const highlightRegex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      const parts = segment.split(highlightRegex);
+      return parts.map((part, j) =>
+        highlightRegex.test(part)
+          ? <mark key={`${i}-${j}`} className="bg-yellow-600/50 text-white rounded px-0.5">{part}</mark>
+          : part
+      );
+    });
   };
 
   const longPressProps = useLongPress(handleLongPress, null, 500);
@@ -78,12 +105,8 @@ const ChatMessage = ({
         {!isSent && <div className="text-xs text-[#6a5a50] mb-0.5 ml-1">{message.displayName}</div>}
         <div className="relative">
           <EmojiBubble text={message.text} role={message.role} isSent={isSent} replyTo={message.replyTo}>
-            {/* Override default text rendering to enable highlighting */}
-            {React.cloneElement(
-              <span />,
-              { children: highlightText(message.text, searchQuery) }
-            )}
-          </EmojiBubble>
+  {renderText(message.text, searchQuery)}
+</EmojiBubble>
         </div>
         {reactions && (
           <div className="flex gap-1 mt-0.5 ml-1">
