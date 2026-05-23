@@ -2,13 +2,13 @@
 import React, { useRef } from 'react';
 import ChatReplyPreview from './ChatReplyPreview';
 
-const ChatInputArea = ({ 
-  inputText, 
-  setInputText, 
-  onSend, 
-  onTyping, 
-  activeReply, 
-  clearReply 
+const ChatInputArea = ({
+  inputText,
+  setInputText,
+  onSend,
+  onTyping,
+  activeReply,
+  clearReply
 }) => {
   const textareaRef = useRef(null);
 
@@ -32,24 +32,35 @@ const ChatInputArea = ({
     }
   };
 
+  const hasText = inputText.trim().length > 0;
+
   return (
-    <>
+    <div className="input-area">
       <ChatReplyPreview activeReply={activeReply} onClear={clearReply} />
-      <div className="p-2.5 border-t border-[#38281e] bg-[#1e1813] flex items-end gap-2">
-        <textarea
-          ref={textareaRef}
-          value={inputText}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-          placeholder="Write a message…"
-          rows={1}
-          className="flex-1 bg-white/5 border border-[#38281e] rounded-3xl px-4 py-2.5 text-[#f0e0d0] font-serif text-sm resize-none max-h-28 outline-none overscroll-none"
-        />
-        <button onClick={onSend} className="w-11 h-11 rounded-full bg-gradient-to-br from-[#4a7c59] to-[#2e5239] text-white flex items-center justify-center shadow-md active:scale-95 transition">
-          ➤
+      <div className="input-row">
+        <div className="input-field-wrap">
+          <textarea
+            ref={textareaRef}
+            value={inputText}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            placeholder="Write something beautiful…"
+            rows={1}
+            className="input-field"
+          />
+        </div>
+        <button
+          onClick={onSend}
+          className={`send-btn ${hasText ? 'send-btn--active' : 'send-btn--idle'}`}
+          aria-label="Send message"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </button>
       </div>
-    </>
+    </div>
   );
 };
 

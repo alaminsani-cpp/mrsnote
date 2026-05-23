@@ -25,19 +25,15 @@ const ChatHeader = ({
   const formatLastSeen = (ts) => {
     const diff = Date.now() - ts;
     const mins = Math.floor(diff / 60000);
-
     if (mins < 1) return 'just now';
     if (mins < 60) return `${mins}m ago`;
-
     const hrs = Math.floor(mins / 60);
-
     if (hrs < 24) return `${hrs}h ago`;
-
     return new Date(ts).toLocaleDateString();
   };
 
-  const currentMoodEmoji =
-    availableMoods.find((m) => m.key === myMood)?.emoji || '😶';
+  const currentMoodEmoji = availableMoods.find((m) => m.key === myMood)?.emoji || '✨';
+  const partnerMoodEmoji = availableMoods.find((m) => m.key === partnerMood)?.emoji;
 
   const handleSearchChange = (e) => {
     const value = e.target.value;
@@ -45,135 +41,110 @@ const ChatHeader = ({
     onSearch(value);
   };
 
-  // FIXED IMAGE HANDLING
-  const avatarImage =
-    partnerAvatar === 'her' ? himAvatar : herAvatar;
+  const avatarImage = partnerAvatar === 'her' ? himAvatar : herAvatar;
+  const isHer = partnerAvatar === 'her';
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-[#38281e] bg-[#1e1813]">
-      
-      {/* Avatar */}
-      <div className="relative">
-        <div
-          className={`w-10 h-10 rounded-full flex items-center justify-center overflow-hidden ${
-            partnerAvatar === 'her'
-              ? 'bg-gradient-to-br from-[#6b2d1a] to-[#3d1208]'
-              : 'bg-gradient-to-br from-[#1a3048] to-[#0b1a28]'
-          }`}
-        >
-          <img
-            src={avatarImage}
-            alt={partnerName}
-            className="w-8 h-8 object-contain"
-          />
-        </div>
-
-        <span
-          className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#1e1813] ${
-            isPartnerOnline ? 'bg-[#5bc87a]' : 'bg-[#6a5a50]'
-          }`}
-        ></span>
-      </div>
-
-      {/* Partner Info */}
-      <div className="flex-1">
-        <div className="flex items-center gap-1">
-          <span className="font-serif text-[#f0e0d0] font-semibold">
-            {partnerName}
-          </span>
-
-          {partnerMood && (
-            <span className="text-sm">
-              {availableMoods.find((m) => m.key === partnerMood)?.emoji}
-            </span>
-          )}
-        </div>
-
-        <div className="text-xs font-serif italic">
-          {isPartnerOnline ? (
-            <span className="text-[#5bc87a]">online</span>
-          ) : partnerLastSeen ? (
-            <span className="text-[#6a5a50]">
-              last seen {formatLastSeen(partnerLastSeen)}
-            </span>
-          ) : (
-            <span className="text-[#6a5a50]">offline</span>
-          )}
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-2">
-        
-        {/* Search */}
-        {showSearch ? (
-          <input
-            type="text"
-            placeholder="Search..."
-            value={localQuery}
-            onChange={handleSearchChange}
-            autoFocus
-            className="bg-[#2a1f18] text-white rounded-full px-3 py-1.5 text-sm outline-none w-28"
-          />
-        ) : (
-          <button
-            onClick={() => setShowSearch(true)}
-            className="text-[#a09080] w-8 h-8 flex items-center justify-center"
-          >
-            <img
-              src={searchIcon}
-              alt="Search"
-              className="w-5 h-5"
-            />
-          </button>
-        )}
-
-        {/* Mood Picker */}
-        <div className="relative">
-          <button
-            onClick={() => setShowMoodPicker(!showMoodPicker)}
-            className="w-9 h-9 rounded-full bg-white/5 border border-[#38281e] text-xl flex items-center justify-center"
-          >
-            {currentMoodEmoji}
-          </button>
-
-          {showMoodPicker && (
-            <div className="absolute right-0 top-full mt-2 w-52 bg-[#1e1813] border border-[#38281e] rounded-2xl p-3 z-50 shadow-xl">
-              
-              <div className="text-[10px] uppercase text-center text-[#7a6a60] mb-2">
-                Set your mood
-              </div>
-
-              <div className="grid grid-cols-4 gap-1">
-                {availableMoods.map((m) => (
-                  <button
-                    key={m.key}
-                    onClick={() => onSetMood(m.key)}
-                    className={`flex flex-col items-center p-1 rounded-lg ${
-                      myMood === m.key
-                        ? 'bg-[#4a7c59]/20 border border-[#4a7c59]'
-                        : ''
-                    }`}
-                  >
-                    <span className="text-xl">{m.emoji}</span>
-
-                    <span className="text-[8px] text-[#7a6a60]">
-                      {m.label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Close */}
-        <button
-          onClick={onClose}
-          className="w-8 h-8 rounded-full bg-white/5 text-[#807060] flex items-center justify-center"
-        >
-          ✕
+    <div className="chat-header">
+      <div className="header-inner">
+        {/* Close button */}
+        <button onClick={onClose} className="close-btn" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M13.5 4.5L4.5 13.5M4.5 4.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
         </button>
+
+        {/* Avatar */}
+        <div className="avatar-wrap">
+          <div className={`avatar-ring ${isHer ? 'avatar-ring--her' : 'avatar-ring--him'}`}>
+            <div className="avatar-img-wrap">
+              <img src={avatarImage} alt={partnerName} className="avatar-img" />
+            </div>
+          </div>
+          <span className={`presence-dot ${isPartnerOnline ? 'presence-dot--online' : 'presence-dot--offline'}`} />
+        </div>
+
+        {/* Info */}
+        <div className="header-info">
+          <div className="partner-name-row">
+            <span className="partner-name">{partnerName}</span>
+            {partnerMoodEmoji && (
+              <span className="partner-mood-badge" title="Partner's mood">
+                {partnerMoodEmoji}
+              </span>
+            )}
+          </div>
+          <div className="presence-text">
+            {isPartnerOnline ? (
+              <span className="online-text">
+                <span className="online-pulse" />
+                online now
+              </span>
+            ) : partnerLastSeen ? (
+              <span className="lastseen-text">last seen {formatLastSeen(partnerLastSeen)}</span>
+            ) : (
+              <span className="lastseen-text">offline</span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="header-actions">
+          {/* Search */}
+          {showSearch ? (
+            <div className="search-bar">
+              <svg className="search-icon-inline" width="14" height="14" viewBox="0 0 20 20" fill="none">
+                <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M13.5 13.5L17 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              <input
+                type="text"
+                placeholder="Search…"
+                value={localQuery}
+                onChange={handleSearchChange}
+                autoFocus
+                className="search-input"
+              />
+              <button onClick={() => { setShowSearch(false); setLocalQuery(''); onSearch(''); }} className="search-close">✕</button>
+            </div>
+          ) : (
+            <button onClick={() => setShowSearch(true)} className="icon-btn" aria-label="Search">
+              <svg width="17" height="17" viewBox="0 0 20 20" fill="none">
+                <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M13.5 13.5L17 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
+
+          {/* Mood picker */}
+          <div className="mood-wrap">
+            <button
+              onClick={() => setShowMoodPicker(!showMoodPicker)}
+              className="mood-trigger"
+              title="Set your mood"
+            >
+              <span className="mood-emoji">{currentMoodEmoji}</span>
+            </button>
+
+            {showMoodPicker && (
+              <div className="mood-panel">
+                <div className="mood-panel-label">How are you feeling?</div>
+                <div className="mood-grid">
+                  {availableMoods.map((m) => (
+                    <button
+                      key={m.key}
+                      onClick={() => onSetMood(m.key)}
+                      className={`mood-item ${myMood === m.key ? 'mood-item--active' : ''}`}
+                    >
+                      <span className="mood-item-emoji">{m.emoji}</span>
+                      <span className="mood-item-label">{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

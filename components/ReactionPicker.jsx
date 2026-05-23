@@ -7,7 +7,7 @@ const REACTIONS = [
   { emoji: '😢', label: 'sad' },
   { emoji: '😠', label: 'angry' },
   { emoji: '👍', label: 'thumbsup' },
-  { emoji: '🚫', label: 'remove', isRemove: true }, // special "remove reaction" option
+  { emoji: '🚫', label: 'remove', isRemove: true },
 ];
 
 const ReactionPicker = ({ onSelect, onClose, messageElement }) => {
@@ -21,7 +21,7 @@ const ReactionPicker = ({ onSelect, onClose, messageElement }) => {
     const messageRect = messageElement.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    const GAP = 6;
+    const GAP = 8;
 
     let top = messageRect.top - pickerRect.height - GAP;
     let placeBelow = false;
@@ -31,7 +31,7 @@ const ReactionPicker = ({ onSelect, onClose, messageElement }) => {
       placeBelow = true;
     }
 
-    let left = messageRect.left + (messageRect.width / 2) - (pickerRect.width / 2);
+    let left = messageRect.left + messageRect.width / 2 - pickerRect.width / 2;
     if (left < 10) left = 10;
     if (left + pickerRect.width > viewportWidth - 10) {
       left = viewportWidth - pickerRect.width - 10;
@@ -41,12 +41,7 @@ const ReactionPicker = ({ onSelect, onClose, messageElement }) => {
       top = messageRect.bottom + GAP;
     }
 
-    setStyle({
-      position: 'fixed',
-      top: top,
-      left: left,
-      zIndex: 1000,
-    });
+    setStyle({ position: 'fixed', top, left, zIndex: 1000 });
   }, [messageElement]);
 
   useEffect(() => {
@@ -58,20 +53,16 @@ const ReactionPicker = ({ onSelect, onClose, messageElement }) => {
   }, [onClose]);
 
   const handleSelect = (reaction) => {
-    if (reaction.isRemove) {
-      onSelect(null); // null means remove reaction
-    } else {
-      onSelect(reaction.emoji);
-    }
+    onSelect(reaction.isRemove ? null : reaction.emoji);
   };
 
   return (
-    <div ref={pickerRef} style={style} className="bg-[#1e1813] rounded-full shadow-lg border border-[#38281e] px-2 py-1.5 flex gap-1 animate-slideUp">
-      {REACTIONS.map(react => (
+    <div ref={pickerRef} style={style} className="reaction-picker">
+      {REACTIONS.map((react) => (
         <button
           key={react.label}
           onClick={() => handleSelect(react)}
-          className={`text-2xl hover:scale-125 transition-transform p-1 ${react.isRemove ? 'opacity-70' : ''}`}
+          className={`reaction-btn ${react.isRemove ? 'reaction-btn--remove' : ''}`}
           title={react.label}
         >
           {react.emoji}
@@ -82,7 +73,3 @@ const ReactionPicker = ({ onSelect, onClose, messageElement }) => {
 };
 
 export default ReactionPicker;
-
-
-
-

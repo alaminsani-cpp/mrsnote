@@ -3,13 +3,13 @@ import ChatEmptyState from './ChatEmptyState';
 import ChatTypingIndicator from './ChatTypingIndicator';
 import ChatMessage from './ChatMessage';
 
-const ChatMessageList = ({ 
-  messages, 
-  currentUser, 
-  typingPartner, 
-  attachSwipe, 
-  onAddReaction, 
-  showToast, 
+const ChatMessageList = ({
+  messages,
+  currentUser,
+  typingPartner,
+  attachSwipe,
+  onAddReaction,
+  showToast,
   partnerName,
   searchQuery,
   containerRef,
@@ -31,42 +31,51 @@ const ChatMessageList = ({
     }
   }, [messages, loadingOlder]);
 
-  // Auto-scroll when new message arrives, but only if already near bottom or it's a new message from user?
+  // Auto-scroll on new message if near bottom
   useEffect(() => {
     if (!containerRef?.current) return;
     const container = containerRef.current;
-    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-    // Also scroll if the new message is from current user (they likely want to see it)
+    const isNearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
     const lastMessage = messages[messages.length - 1];
-    const isOwnNewMessage = lastMessage && lastMessage.role === currentUser?.role && messages.length > prevMessagesLength.current;
-    if (isNearBottom || isOwnNewMessage) {
-      scrollToBottom();
-    }
+    const isOwnNewMessage =
+      lastMessage &&
+      lastMessage.role === currentUser?.role &&
+      messages.length > prevMessagesLength.current;
+    if (isNearBottom || isOwnNewMessage) scrollToBottom();
     prevMessagesLength.current = messages.length;
   }, [messages]);
 
   // Filter messages by search query
-  const filteredMessages = searchQuery?.trim() === ''
-    ? messages
-    : messages.filter(msg =>
-        msg.text.toLowerCase().includes(searchQuery?.toLowerCase() || '')
-      );
+  const filteredMessages =
+    searchQuery?.trim() === ''
+      ? messages
+      : messages.filter((msg) =>
+          msg.text.toLowerCase().includes(searchQuery?.toLowerCase() || '')
+        );
 
   if (filteredMessages.length === 0) {
     return (
-      <div ref={containerRef} className="chat-messages-scroll flex-1 overflow-auto p-3 flex flex-col items-center justify-center text-[#5a4a40]">
-        {searchQuery ? 'No matching messages' : <ChatEmptyState />}
+      <div
+        ref={containerRef}
+        className="chat-messages-scroll"
+        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+      >
+        {searchQuery ? (
+          <div className="no-results">No messages match your search</div>
+        ) : (
+          <ChatEmptyState />
+        )}
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="chat-messages-scroll flex-1 overflow-auto p-3 flex flex-col gap-1.5">
+    <div ref={containerRef} className="chat-messages-scroll">
       {loadingOlder && (
-        <div className="text-center text-[#7a6a60] text-xs py-2 animate-pulse">
-          Loading older messages...
-        </div>
+        <div className="loading-older">Loading earlier messages…</div>
       )}
+
       {filteredMessages.map((msg) => (
         <ChatMessage
           key={msg.id}
@@ -79,6 +88,7 @@ const ChatMessageList = ({
           searchQuery={searchQuery}
         />
       ))}
+
       <ChatTypingIndicator isTyping={typingPartner} />
       <div ref={messagesEndRef} />
     </div>

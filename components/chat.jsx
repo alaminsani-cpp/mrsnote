@@ -12,6 +12,7 @@ import { useDiscreetNotifications } from '../hooks/useDiscreetNotifications';
 import { useKeyboardAvoiding } from '../hooks/useKeyboardAvoiding';
 import { usePreventSelection } from '../hooks/usePreventSelection';
 import { useTabVisibilityBlur } from '../hooks/useTabVisibilityBlur';
+import './chat.css';
 
 const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partnerAvatarEmoji }) => {
   // State
@@ -30,9 +31,9 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const [hasMore, setHasMore] = useState(true);
   const messagesContainerRef = useRef(null);
   const initialLoadDone = useRef(false);
-  const lastLoadedKeyRef = useRef(null); // tracks newest key from initial get() to scope realtime listener
-  const isInitialLoad = useRef(true);    // true until first messages render at bottom
-  const prevScrollHeightRef = useRef(0); // used to preserve scroll pos when loading older msgs
+  const lastLoadedKeyRef = useRef(null);
+  const isInitialLoad = useRef(true);
+  const prevScrollHeightRef = useRef(0);
   const chatRoom = 'privateChats/secret_blossom_chat';
 
   // Custom hooks
@@ -63,7 +64,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     if (loadingOlder) return;
     setLoadingOlder(true);
     try {
-      // Firebase modular SDK: constraints are passed into query() — not chained
       const constraints = [orderByKey()];
       if (lastKey) constraints.push(endBefore(lastKey));
       constraints.push(limitToLast(20));
@@ -73,12 +73,9 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       snapshot.forEach(child => {
         newMessages.push({ id: child.key, ...child.val() });
       });
-      // limitToLast returns messages in ascending key order (oldest → newest).
-      // Keep that order — newest message is last, so it renders at the bottom.
       if (newMessages.length < 20) setHasMore(false);
 
       setMessages(prev => {
-        // Older messages prepend to the front; dedup by id
         const all = lastKey ? [...newMessages, ...prev] : [...prev, ...newMessages];
         const unique = [];
         const ids = new Set();
@@ -88,22 +85,14 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
             unique.push(msg);
           }
         }
-        // Always keep final array sorted oldest → newest by Firebase push key
         unique.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
         return unique;
       });
 
-      // On initial load (no lastKey), record the newest key so the realtime
-      // listener is scoped to only future messages (avoids replaying history).
-      // Use '' as sentinel when DB is empty — means "listen from start".
       if (!lastKey) {
-        lastLoadedKeyRef.current =
-          newMessages.length > 0 ? newMessages[newMessages.length - 1].id : '';
-        // Signal that we need to jump to bottom after this render
+        lastLoadedKeyRef.current = newMessages.length > 0 ? newMessages[newMessages.length - 1].id : '';
         isInitialLoad.current = true;
       } else {
-        // Loading older messages — save current scrollHeight so we can
-        // restore the visual position after the new messages are rendered.
         prevScrollHeightRef.current = messagesContainerRef.current?.scrollHeight || 0;
       }
     } catch (error) {
@@ -113,31 +102,24 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     }
   };
 
-  // Initial load (only once when chat opens)
+  // Initial load
   useEffect(() => {
     if (!isOpen || !currentUser || initialLoadDone.current) return;
     initialLoadDone.current = true;
     loadMessages();
   }, [isOpen, currentUser]);
 
-  // Real-time NEW messages listener — scoped to keys AFTER the initial get().
-  // This prevents onChildAdded from replaying the entire message history on mount,
-  // which was the cause of the 8-second load delay.
+  // Real-time NEW messages listener
   useEffect(() => {
     if (!isOpen || !currentUser) return;
-
-    // null means the initial get() hasn't returned yet — don't attach listener yet.
     if (lastLoadedKeyRef.current === null) return;
 
-    // '' means the DB was empty on load — listen to everything from the start.
-    // Otherwise scope to keys strictly after the last fetched message.
     const newMsgsQuery = lastLoadedKeyRef.current === ''
       ? query(messagesRef, orderByKey())
       : query(messagesRef, orderByKey(), startAfter(lastLoadedKeyRef.current));
 
     const unsubscribe = onChildAdded(newMsgsQuery, (snap) => {
       const msg = { id: snap.key, ...snap.val() };
-      // Update lastLoadedKeyRef so the cursor advances with each new message.
       lastLoadedKeyRef.current = snap.key;
       setMessages(prev => {
         if (prev.some(m => m.id === msg.id)) return prev;
@@ -149,7 +131,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsubscribe();
   }, [isOpen, currentUser, lastLoadedKeyRef.current]);
 
-  // Message updates (reactions, readBy, etc.)
+  // Message updates
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsubscribe = onChildChanged(messagesRef, (snap) => {
@@ -172,7 +154,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsubscribe();
   }, [isOpen, currentUser]);
 
-  // Presence (online / last seen)
+  // Presence
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsubscribe = onValue(presenceRef, (snap) => {
@@ -197,7 +179,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsubscribe();
   }, [isOpen, currentUser]);
 
-  // Set current user online
+  // Set online status
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const onlineRef = ref(db, `${chatRoom}/presence/${currentUser.role}/online`);
@@ -211,25 +193,19 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     };
   }, [isOpen, currentUser]);
 
-  // WhatsApp-style scroll behaviour:
-  //   1. Initial load  → instantly jump to bottom (no animation)
-  //   2. New message   → scroll to bottom only if user was already near the bottom
-  //   3. Older msgs    → preserve scroll position (don't jump to top)
+  // Scroll behaviour
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container || messages.length === 0) return;
 
     if (isInitialLoad.current) {
-      // Jump instantly to the very bottom — user opens chat and sees latest messages
       container.scrollTop = container.scrollHeight;
       isInitialLoad.current = false;
     } else if (prevScrollHeightRef.current > 0) {
-      // Older messages were prepended — restore scroll so the view doesn't jump
       const newScrollHeight = container.scrollHeight;
       container.scrollTop = newScrollHeight - prevScrollHeightRef.current;
       prevScrollHeightRef.current = 0;
     } else {
-      // New message arrived — only auto-scroll if user is within 150px of bottom
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       if (distanceFromBottom < 150) {
         container.scrollTop = container.scrollHeight;
@@ -237,7 +213,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     }
   }, [messages]);
 
-  // Scroll to top detection → load older messages
+  // Load older on scroll to top
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -251,7 +227,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => container.removeEventListener('scroll', handleScroll);
   }, [messages, hasMore, loadingOlder]);
 
-  // Lock body scroll when chat open
+  // Lock body scroll
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -269,7 +245,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     };
   }, [isOpen]);
 
-  // Request notification permission on user interaction
+  // Request notification permission
   useEffect(() => {
     const handleInteraction = () => {
       requestPermission();
@@ -321,7 +297,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       } else {
         await set(reactionRef, emoji);
       }
-      console.log('Reaction saved:', messageId, emoji);
     } catch (error) {
       console.error('Failed to save reaction:', error);
     }
@@ -353,13 +328,13 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   return (
     <div
       style={keyboardStyle}
-      className="fixed z-50 bg-[#13100e] flex flex-col will-change-transform transition-transform duration-300 ease-out translate-y-0"
+      className="chat-root fixed inset-0 z-50 bg-[#080b10] flex flex-col font-sans"
     >
       {tabHidden && (
-        <div className="absolute inset-0 bg-black z-[60] flex items-center justify-center">
-          <div className="text-center text-white/70 text-sm px-4">
-            <span className="text-3xl block mb-2">🔒</span>
-            Content hidden when you're away
+        <div className="tab-hidden-overlay">
+          <div className="tab-hidden-content">
+            <span className="tab-hidden-icon">🔒</span>
+            Content hidden while you're away
           </div>
         </div>
       )}

@@ -3,14 +3,14 @@ import EmojiBubble from './EmojiBubble';
 import ReactionPicker from './ReactionPicker';
 import { useLongPress } from '../hooks/useLongPress';
 
-const ChatMessage = ({ 
-  message, 
-  currentUser, 
-  attachSwipe, 
-  onAddReaction, 
-  showToast, 
+const ChatMessage = ({
+  message,
+  currentUser,
+  attachSwipe,
+  onAddReaction,
+  showToast,
   partnerName,
-  searchQuery   // new prop
+  searchQuery
 }) => {
   const [pickerVisible, setPickerVisible] = useState(false);
   const messageRef = useRef(null);
@@ -22,9 +22,7 @@ const ChatMessage = ({
     }
   }, [attachSwipe, message]);
 
-  const handleLongPress = () => {
-    setPickerVisible(true);
-  };
+  const handleLongPress = () => setPickerVisible(true);
 
   const handleReactionSelect = async (emoji) => {
     const currentReaction = message.reactions?.[currentUser.role];
@@ -52,7 +50,8 @@ const ChatMessage = ({
     return entries.length ? entries : null;
   };
 
-  const formatTime = (ts) => new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const formatTime = (ts) =>
+    new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
   // Render text with clickable links and optional search highlight
   const renderText = (text, query) => {
@@ -61,7 +60,7 @@ const ChatMessage = ({
 
     return segments.map((segment, i) => {
       const isUrl = URL_REGEX.test(segment);
-      URL_REGEX.lastIndex = 0; // reset after test
+      URL_REGEX.lastIndex = 0;
 
       if (isUrl) {
         const href = segment.startsWith('http') ? segment : `https://${segment}`;
@@ -72,20 +71,19 @@ const ChatMessage = ({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="underline underline-offset-2 text-[#7ecf9a] hover:text-[#a8e6be] break-all transition-colors duration-150"
+            className="msg-link"
           >
             {segment}
           </a>
         );
       }
 
-      // Apply search highlight to non-URL segments
       if (!query || query.trim() === '') return segment;
       const highlightRegex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
       const parts = segment.split(highlightRegex);
       return parts.map((part, j) =>
         highlightRegex.test(part)
-          ? <mark key={`${i}-${j}`} className="bg-yellow-600/50 text-white rounded px-0.5">{part}</mark>
+          ? <mark key={`${i}-${j}`} className="search-mark">{part}</mark>
           : part
       );
     });
@@ -99,35 +97,50 @@ const ChatMessage = ({
     <>
       <div
         ref={messageRef}
-        className={`flex flex-col max-w-[76%] ${isSent ? 'self-end items-end' : 'self-start items-start'}`}
+        className={`msg-wrapper ${isSent ? 'msg-wrapper--sent' : 'msg-wrapper--recv'}`}
         {...longPressProps}
       >
-        {!isSent && <div className="text-xs text-[#6a5a50] mb-0.5 ml-1">{message.displayName}</div>}
-        <div className="relative">
-          <EmojiBubble text={message.text} role={message.role} isSent={isSent} replyTo={message.replyTo}>
-  {renderText(message.text, searchQuery)}
-</EmojiBubble>
+        {!isSent && (
+          <div className="msg-sender-name">{message.displayName}</div>
+        )}
+
+        <div style={{ position: 'relative' }}>
+          <EmojiBubble
+            text={message.text}
+            role={message.role}
+            isSent={isSent}
+            replyTo={message.replyTo}
+          >
+            {renderText(message.text, searchQuery)}
+          </EmojiBubble>
         </div>
+
         {reactions && (
-          <div className="flex gap-1 mt-0.5 ml-1">
+          <div className="reactions-row">
             {reactions.map(([role, emoji]) => (
-              <span key={role} className={`text-xs bg-[#2a1f18] rounded-full px-1.5 py-0.5 ${role === currentUser.role ? 'border border-[#4a7c59]' : ''}`}>
+              <span
+                key={role}
+                className={`reaction-chip ${role === currentUser.role ? 'reaction-chip--mine' : ''}`}
+              >
                 {emoji}
               </span>
             ))}
           </div>
         )}
-        <div className="flex items-center gap-1 mt-0.5 mx-1">
-          <span className="text-[10px] text-[#5a4a40] italic">{formatTime(message.ts)}</span>
+
+        <div className="msg-meta">
+          <span className="msg-time">{formatTime(message.ts)}</span>
           {isSent && (
-            <span onClick={handleSeenInfo} className="text-xs cursor-pointer">
-              <span className={message.readBy?.[partnerRole] ? 'text-[#5bc87a]' : 'text-[#5a4a40]'}>
-                ✓✓
-              </span>
+            <span
+              onClick={handleSeenInfo}
+              className={`read-tick ${message.readBy?.[partnerRole] ? 'read-tick--read' : 'read-tick--unread'}`}
+            >
+              ✓✓
             </span>
           )}
         </div>
       </div>
+
       {pickerVisible && (
         <ReactionPicker
           onSelect={handleReactionSelect}
