@@ -12,6 +12,10 @@ export const useKeyboardAvoiding = (enabled = true, extraPadding = 0) => {
       setStyle({});
       return;
     }
+<<<<<<< HEAD
+=======
+    
+>>>>>>> 373cd9f (Updated project)
 
     const vv = window.visualViewport;
 
