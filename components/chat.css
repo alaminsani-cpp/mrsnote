@@ -489,7 +489,7 @@
   padding: 10px 14px;
   border-radius: var(--radius-bubble);
   font-family: var(--font-serif);
-  font-size: 17.5px;
+  font-size: 19px;
   font-weight: 500;
   line-height: 1.55;
   letter-spacing: 0.01em;
@@ -605,10 +605,10 @@
 }
 
 .msg-time {
-  font-size: 10px;
+  font-size: 14px;
   font-family: var(--font-serif);
   font-style: italic;
-  color: var(--text-faint);
+  color: rgba(200, 190, 180, 0.8);
   letter-spacing: 0.04em;
 }
 
