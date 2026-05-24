@@ -1,3 +1,4 @@
+// src/components/ChatMessage.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import EmojiBubble from './EmojiBubble';
 import ReactionPicker from './ReactionPicker';
@@ -16,6 +17,7 @@ const ChatMessage = ({
   const messageRef = useRef(null);
   const isSent = message.role === currentUser.role;
 
+  // Attach swipe-to-reply listener
   useEffect(() => {
     if (messageRef.current) {
       attachSwipe(messageRef.current, message);
@@ -53,7 +55,7 @@ const ChatMessage = ({
   const formatTime = (ts) =>
     new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
-  // Render text with clickable links and optional search highlight
+  // Render clickable links and search highlight
   const renderText = (text, query) => {
     const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+\.[^\s]+)/gi;
     const segments = text.split(URL_REGEX);
@@ -93,6 +95,66 @@ const ChatMessage = ({
   const reactions = getReactions();
   const partnerRole = currentUser.role === 'her' ? 'him' : 'her';
 
+  // ------------------------------------------------------------------
+  // Helper: render image if present
+  // ------------------------------------------------------------------
+  const renderImage = () => {
+    if (!message.imageUrl) return null;
+    return (
+      <div className="message-image mt-1 mb-1">
+        <img
+          src={message.imageUrl}
+          alt="Shared image"
+          className="max-w-full rounded-lg cursor-pointer"
+          style={{ maxHeight: '200px', objectFit: 'cover' }}
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(message.imageUrl, '_blank');
+          }}
+          onError={(e) => {
+            e.target.style.display = 'none';
+            showToast('Failed to load image');
+          }}
+        />
+      </div>
+    );
+  };
+
+  // ------------------------------------------------------------------
+  // Prepare reply preview text (show "📷 Image" for image replies)
+  // ------------------------------------------------------------------
+  const getReplyText = () => {
+    if (!message.replyTo) return null;
+    const { text, isImage, sender } = message.replyTo;
+    const displayText = isImage ? '📷 Image' : (text || '');
+    return { sender, displayText };
+  };
+
+  const replyData = getReplyText();
+
+  // ------------------------------------------------------------------
+  // Decide what to render inside the bubble/emoji component
+  // ------------------------------------------------------------------
+  // For emoji‑only messages we still want to show images if any.
+  // The EmojiBubble component already handles reply previews.
+  // We'll pass the image as children inside the same structure.
+  const bubbleContent = (
+    <>
+      {renderImage()}
+      {message.text && (
+        <span className="bubble-text">
+          {renderText(message.text, searchQuery)}
+        </span>
+      )}
+    </>
+  );
+
+  // If the message has an image but no text, we still need to pass something
+  // so the bubble doesn't become empty. The image itself is already rendered.
+  const hasContent = !!message.text || !!message.imageUrl;
+
+  if (!hasContent) return null;
+
   return (
     <>
       <div
@@ -105,13 +167,18 @@ const ChatMessage = ({
         )}
 
         <div style={{ position: 'relative' }}>
+          {/* 
+            EmojiBubble will wrap the bubbleContent.
+            If the message is only an image (no text), we treat it as a normal bubble
+            because isEmojiOnly would be false. So it works fine.
+          */}
           <EmojiBubble
-            text={message.text}
+            text={message.text || ''}   // needed for emoji detection
             role={message.role}
             isSent={isSent}
-            replyTo={message.replyTo}
+            replyTo={replyData ? { text: replyData.displayText, sender: replyData.sender } : null}
           >
-            {renderText(message.text, searchQuery)}
+            {bubbleContent}
           </EmojiBubble>
         </div>
 

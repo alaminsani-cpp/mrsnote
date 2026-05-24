@@ -260,22 +260,43 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     set(readRef, Date.now());
   };
 
-  const sendMessage = async () => {
-    if (!inputText.trim()) return;
-    const msg = {
-      text: inputText.trim(),
+  // ------------------------------------------------------------------
+  // UPDATED sendMessage to accept both text and imageUrl
+  // ------------------------------------------------------------------
+  const sendMessage = async (msgData = {}) => {
+    const { text, imageUrl } = msgData;
+
+    // Nothing to send
+    if (!text?.trim() && !imageUrl) return;
+
+    // Build message object
+    const message = {
       role: currentUser.role,
       displayName: currentUser.displayName,
       ts: Date.now(),
     };
+    if (text?.trim()) message.text = text.trim();
+    if (imageUrl) message.imageUrl = imageUrl;
+
+    // Include reply data if replying
     if (activeReply) {
-      msg.replyTo = { text: activeReply.text, sender: activeReply.sender };
+      message.replyTo = {
+        text: activeReply.text,
+        sender: activeReply.sender,
+        isImage: activeReply.isImage || false,
+      };
       clearReply();
     }
-    await push(messagesRef, msg);
+
+    // Push to Firebase
+    await push(messagesRef, message);
+
+    // Reset input
     setInputText('');
+    // Stop typing indicator
     set(typingRef, null);
   };
+  // ------------------------------------------------------------------
 
   const handleTyping = () => {
     set(typingRef, { [currentUser.role]: Date.now() });
@@ -369,7 +390,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       <ChatInputArea
         inputText={inputText}
         setInputText={setInputText}
-        onSend={sendMessage}
+        onSend={sendMessage}          // ← now accepts { text, imageUrl }
         onTyping={handleTyping}
         activeReply={activeReply}
         clearReply={clearReply}

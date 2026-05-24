@@ -1,3 +1,4 @@
+// src/hooks/useSwipeToReply.jsx
 import { useState, useRef, useCallback } from 'react';
 
 export const useSwipeToReply = () => {
@@ -24,9 +25,10 @@ export const useSwipeToReply = () => {
     const handleTouchMove = (e) => {
       if (!swiping) return;
       currentX = e.touches[0].clientX - startX;
-      const delta = element.classList.contains('sent') 
-        ? Math.min(0, currentX) 
-        : Math.max(0, currentX);
+      // Limit drag direction based on message alignment
+      const delta = element.classList.contains('msg-wrapper--sent') 
+        ? Math.min(0, currentX)   // sent messages drag left
+        : Math.max(0, currentX);  // received drag right
       element.style.transform = `translateX(${delta * 0.45}px)`;
     };
 
@@ -34,36 +36,70 @@ export const useSwipeToReply = () => {
       swiping = false;
       element.style.transform = '';
       if (Math.abs(currentX) >= THRESHOLD) {
+        // Prepare reply data
+        let replyText = message.text || '';
+        let isImage = false;
+        
+        if (message.imageUrl && !message.text) {
+          // Pure image message
+          replyText = '📷 Image';
+          isImage = true;
+        } else if (message.imageUrl && message.text) {
+          // Message with both text and image – show text as usual
+          replyText = message.text;
+          isImage = false; // replying to the text part, but we still note the image exists?
+          // For simplicity, we just treat it as a normal text reply.
+          // If you want to indicate both, you could set replyText = `📷 ${message.text}`
+        }
+        
         setActiveReply({
-          text: message.text,
+          text: replyText,
           sender: message.displayName || (message.role === 'her' ? '🌸 Her' : '💙 Him'),
-          messageId: message.id
+          messageId: message.id,
+          isImage: isImage,
+          originalMessage: message, // optional: keep full message for advanced features
         });
       }
       currentX = 0;
     };
 
+    // Clean up previous listeners if any (avoid duplicates)
+    const cleanup = swipeRefs.current.get(element);
+    if (cleanup) cleanup();
+    
     element.addEventListener('touchstart', handleTouchStart, { passive: true });
     element.addEventListener('touchmove', handleTouchMove, { passive: true });
     element.addEventListener('touchend', handleTouchEnd);
-
-    return () => {
+    
+    // Store cleanup function
+    const removeListeners = () => {
       element.removeEventListener('touchstart', handleTouchStart);
       element.removeEventListener('touchmove', handleTouchMove);
       element.removeEventListener('touchend', handleTouchEnd);
     };
+    swipeRefs.current.set(element, removeListeners);
+    
+    return removeListeners;
   }, []);
 
+  // Optional: helper to get reply preview component (used in ChatInputArea)
   const getReplyPreviewBar = () => {
     if (!activeReply) return null;
     return {
       component: (
-        <div className="bg-[#2a1f18] border-l-3 border-[#4a7c59] rounded-t-lg px-3 py-2 mx-3 text-xs text-[#a09080] flex justify-between items-center gap-2 animate-slideUp">
-          <div className="flex-1 overflow-hidden">
-            <div className="text-[10px] text-[#7cb58e] mb-0.5">Replying to {activeReply.sender}</div>
-            <div className="truncate">{activeReply.text}</div>
+        <div className="reply-preview">
+          <div className="reply-preview-bar" />
+          <div className="reply-preview-content">
+            <div className="reply-preview-name">Replying to {activeReply.sender}</div>
+            <div className="reply-preview-text">
+              {activeReply.isImage ? '📷 Image' : activeReply.text}
+            </div>
           </div>
-          <button onClick={clearReply} className="text-[#6a5a50] hover:text-[#f0e0d0] text-base">✕</button>
+          <button onClick={clearReply} className="reply-preview-close" aria-label="Cancel reply">
+            <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
+              <path d="M13.5 4.5L4.5 13.5M4.5 4.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
         </div>
       ),
       activeReply
