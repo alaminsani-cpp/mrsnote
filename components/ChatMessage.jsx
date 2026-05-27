@@ -1,146 +1,132 @@
-// src/components/ChatMessage.jsx
-import React, { useState, useRef, useEffect } from 'react';
+// src/components/ChatMessage.jsx  –  OPTIMIZED
+import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import EmojiBubble from './EmojiBubble';
 import ReactionPicker from './ReactionPicker';
 import { useLongPress } from '../hooks/useLongPress';
 
-const ChatMessage = ({
+// ─── stable URL regex (compiled once) ───────────────────────────────
+const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+\.[^\s]+)/gi;
+
+const renderText = (text, query) => {
+  const segments = text.split(URL_REGEX);
+  // Reset lastIndex because split consumed the regex state
+  URL_REGEX.lastIndex = 0;
+
+  return segments.map((segment, i) => {
+    // Test for URL (reset after each test)
+    const isUrl = URL_REGEX.test(segment);
+    URL_REGEX.lastIndex = 0;
+
+    if (isUrl) {
+      const href = segment.startsWith('http') ? segment : `https://${segment}`;
+      return (
+        <a key={i} href={href} target="_blank" rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()} className="msg-link">
+          {segment}
+        </a>
+      );
+    }
+
+    if (!query?.trim()) return segment;
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const hlRe    = new RegExp(`(${escaped})`, 'gi');
+    const parts   = segment.split(hlRe);
+    return parts.map((part, j) =>
+      hlRe.test(part)
+        ? <mark key={`${i}-${j}`} className="search-mark">{part}</mark>
+        : part
+    );
+  });
+};
+
+const ChatMessage = memo(({
   message,
   currentUser,
   attachSwipe,
+  setReply,
   onAddReaction,
   showToast,
   partnerName,
-  searchQuery
+  searchQuery,
 }) => {
   const [pickerVisible, setPickerVisible] = useState(false);
   const messageRef = useRef(null);
-  const isSent = message.role === currentUser.role;
+  const isSent     = message.role === currentUser.role;
 
-  // Attach swipe-to-reply listener
+  // Attach swipe-to-reply (mobile) — only rerun when element or message.id changes
   useEffect(() => {
-    if (messageRef.current) {
-      attachSwipe(messageRef.current, message);
-    }
-  }, [attachSwipe, message]);
+    if (messageRef.current) attachSwipe(messageRef.current, message);
+  }, [attachSwipe, message.id]); // ← message.id not the whole object
 
-  const handleLongPress = () => setPickerVisible(true);
+  // Double-click reply (desktop only)
+  useEffect(() => {
+    const element = messageRef.current;
+    if (!element) return;
+    if (!window.matchMedia('(pointer: fine)').matches) return;
 
-  const handleReactionSelect = async (emoji) => {
-    const currentReaction = message.reactions?.[currentUser.role];
-    const newEmoji = currentReaction === emoji ? null : emoji;
-    await onAddReaction(message.id, newEmoji);
+    const handleDoubleClick = (e) => {
+      e.stopPropagation();
+      setReply({
+        text:            message.imageUrl && !message.text ? '📷 Image' : (message.text || ''),
+        sender:          message.displayName || (message.role === 'her' ? '🌸 Her' : '💙 Him'),
+        messageId:       message.id,
+        isImage:         !!(message.imageUrl && !message.text),
+        originalMessage: message,
+      });
+    };
+
+    element.addEventListener('dblclick', handleDoubleClick);
+    return () => element.removeEventListener('dblclick', handleDoubleClick);
+  }, [message.id, message.text, message.imageUrl, message.displayName, message.role, setReply]);
+
+  const handleLongPress = useCallback(() => setPickerVisible(true), []);
+
+  const handleReactionSelect = useCallback(async (emoji) => {
+    const current = message.reactions?.[currentUser.role];
+    await onAddReaction(message.id, current === emoji ? null : emoji);
     setPickerVisible(false);
-  };
+  }, [message.id, message.reactions, currentUser.role, onAddReaction]);
 
-  const handleSeenInfo = (e) => {
+  const handleSeenInfo = useCallback((e) => {
     e.stopPropagation();
-    const partnerRole = currentUser.role === 'her' ? 'him' : 'her';
+    const partnerRole  = currentUser.role === 'her' ? 'him' : 'her';
     const readByPartner = message.readBy?.[partnerRole];
     if (readByPartner) {
-      const date = new Date(readByPartner).toLocaleDateString();
-      const time = new Date(readByPartner).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-      showToast(`Seen by ${partnerName} on ${date} at ${time}`);
+      const d = new Date(readByPartner);
+      showToast(`Seen by ${partnerName} on ${d.toLocaleDateString()} at ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`);
     } else {
       showToast('Not seen yet');
     }
-  };
+  }, [message.readBy, currentUser.role, partnerName, showToast]);
 
-  const getReactions = () => {
-    if (!message.reactions) return null;
-    const entries = Object.entries(message.reactions);
-    return entries.length ? entries : null;
-  };
-
-  const formatTime = (ts) =>
-    new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-  // Render clickable links and search highlight
-  const renderText = (text, query) => {
-    const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+\.[^\s]+)/gi;
-    const segments = text.split(URL_REGEX);
-
-    return segments.map((segment, i) => {
-      const isUrl = URL_REGEX.test(segment);
-      URL_REGEX.lastIndex = 0;
-
-      if (isUrl) {
-        const href = segment.startsWith('http') ? segment : `https://${segment}`;
-        return (
-          <a
-            key={i}
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="msg-link"
-          >
-            {segment}
-          </a>
-        );
-      }
-
-      if (!query || query.trim() === '') return segment;
-      const highlightRegex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-      const parts = segment.split(highlightRegex);
-      return parts.map((part, j) =>
-        highlightRegex.test(part)
-          ? <mark key={`${i}-${j}`} className="search-mark">{part}</mark>
-          : part
-      );
-    });
-  };
-
-  const longPressProps = useLongPress(handleLongPress, null, 500);
-  const reactions = getReactions();
+  const reactions   = message.reactions ? Object.entries(message.reactions).filter(([, v]) => v) : null;
   const partnerRole = currentUser.role === 'her' ? 'him' : 'her';
+  const longPressProps = useLongPress(handleLongPress, null, 500);
 
-  // ------------------------------------------------------------------
-  // Helper: render image if present
-  // ------------------------------------------------------------------
-  const renderImage = () => {
-    if (!message.imageUrl) return null;
-    return (
-      <div className="message-image mt-1 mb-1">
-        <img
-          src={message.imageUrl}
-          alt="Shared image"
-          className="max-w-full rounded-lg cursor-pointer"
-          style={{ maxHeight: '200px', objectFit: 'cover' }}
-          onClick={(e) => {
-            e.stopPropagation();
-            window.open(message.imageUrl, '_blank');
-          }}
-          onError={(e) => {
-            e.target.style.display = 'none';
-            showToast('Failed to load image');
-          }}
-        />
-      </div>
-    );
-  };
+  if (!message.text && !message.imageUrl) return null;
 
-  // ------------------------------------------------------------------
-  // Prepare reply preview text (show "📷 Image" for image replies)
-  // ------------------------------------------------------------------
-  const getReplyText = () => {
+  const replyData = (() => {
     if (!message.replyTo) return null;
     const { text, isImage, sender } = message.replyTo;
-    const displayText = isImage ? '📷 Image' : (text || '');
-    return { sender, displayText };
-  };
+    return { sender, displayText: isImage ? '📷 Image' : (text || '') };
+  })();
 
-  const replyData = getReplyText();
-
-  // ------------------------------------------------------------------
-  // Decide what to render inside the bubble/emoji component
-  // ------------------------------------------------------------------
-  // For emoji‑only messages we still want to show images if any.
-  // The EmojiBubble component already handles reply previews.
-  // We'll pass the image as children inside the same structure.
   const bubbleContent = (
     <>
-      {renderImage()}
+      {message.imageUrl && (
+        <div className="message-image mt-1 mb-1">
+          <img
+            src={message.imageUrl}
+            alt="Shared image"
+            loading="lazy"
+            decoding="async"
+            className="max-w-full rounded-lg cursor-pointer"
+            style={{ maxHeight: '200px', objectFit: 'cover' }}
+            onClick={(e) => { e.stopPropagation(); window.open(message.imageUrl, '_blank'); }}
+            onError={(e) => { e.target.style.display = 'none'; showToast('Failed to load image'); }}
+          />
+        </div>
+      )}
       {message.text && (
         <span className="bubble-text">
           {renderText(message.text, searchQuery)}
@@ -149,12 +135,6 @@ const ChatMessage = ({
     </>
   );
 
-  // If the message has an image but no text, we still need to pass something
-  // so the bubble doesn't become empty. The image itself is already rendered.
-  const hasContent = !!message.text || !!message.imageUrl;
-
-  if (!hasContent) return null;
-
   return (
     <>
       <div
@@ -162,18 +142,11 @@ const ChatMessage = ({
         className={`msg-wrapper ${isSent ? 'msg-wrapper--sent' : 'msg-wrapper--recv'}`}
         {...longPressProps}
       >
-        {!isSent && (
-          <div className="msg-sender-name">{message.displayName}</div>
-        )}
+        {!isSent && <div className="msg-sender-name">{message.displayName}</div>}
 
         <div style={{ position: 'relative' }}>
-          {/* 
-            EmojiBubble will wrap the bubbleContent.
-            If the message is only an image (no text), we treat it as a normal bubble
-            because isEmojiOnly would be false. So it works fine.
-          */}
           <EmojiBubble
-            text={message.text || ''}   // needed for emoji detection
+            text={message.text || ''}
             role={message.role}
             isSent={isSent}
             replyTo={replyData ? { text: replyData.displayText, sender: replyData.sender } : null}
@@ -182,13 +155,11 @@ const ChatMessage = ({
           </EmojiBubble>
         </div>
 
-        {reactions && (
+        {reactions?.length > 0 && (
           <div className="reactions-row">
             {reactions.map(([role, emoji]) => (
-              <span
-                key={role}
-                className={`reaction-chip ${role === currentUser.role ? 'reaction-chip--mine' : ''}`}
-              >
+              <span key={role}
+                className={`reaction-chip ${role === currentUser.role ? 'reaction-chip--mine' : ''}`}>
                 {emoji}
               </span>
             ))}
@@ -196,12 +167,12 @@ const ChatMessage = ({
         )}
 
         <div className="msg-meta">
-          <span className="msg-time">{formatTime(message.ts)}</span>
+          <span className="msg-time">
+            {new Date(message.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+          </span>
           {isSent && (
-            <span
-              onClick={handleSeenInfo}
-              className={`read-tick ${message.readBy?.[partnerRole] ? 'read-tick--read' : 'read-tick--unread'}`}
-            >
+            <span onClick={handleSeenInfo}
+              className={`read-tick ${message.readBy?.[partnerRole] ? 'read-tick--read' : 'read-tick--unread'}`}>
               ✓✓
             </span>
           )}
@@ -217,6 +188,18 @@ const ChatMessage = ({
       )}
     </>
   );
-};
+}, (prev, next) => {
+  // Custom comparator — only re-render when these fields change
+  return (
+    prev.message.id        === next.message.id        &&
+    prev.message.text      === next.message.text      &&
+    prev.message.imageUrl  === next.message.imageUrl  &&
+    prev.message.reactions === next.message.reactions &&
+    prev.message.readBy    === next.message.readBy    &&
+    prev.searchQuery       === next.searchQuery       &&
+    prev.partnerName       === next.partnerName
+  );
+});
 
+ChatMessage.displayName = 'ChatMessage';
 export default ChatMessage;

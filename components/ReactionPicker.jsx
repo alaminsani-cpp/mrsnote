@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+// src/components/ReactionPicker.jsx
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const REACTIONS = [
   { emoji: '❤️', label: 'heart' },
@@ -12,9 +13,11 @@ const REACTIONS = [
 
 const ReactionPicker = ({ onSelect, onClose, messageElement }) => {
   const pickerRef = useRef(null);
-  const [style, setStyle] = useState({});
+  const [style, setStyle] = useState({ position: 'fixed', visibility: 'hidden', zIndex: 1000 });
+  const readyRef = useRef(false); // blocks outside-click until after mount
 
-  useEffect(() => {
+  // FIX 1: useLayoutEffect so DOM is painted before we measure
+  useLayoutEffect(() => {
     if (!pickerRef.current || !messageElement) return;
 
     const pickerRect = pickerRef.current.getBoundingClientRect();
@@ -41,19 +44,39 @@ const ReactionPicker = ({ onSelect, onClose, messageElement }) => {
       top = messageRect.bottom + GAP;
     }
 
-    setStyle({ position: 'fixed', top, left, zIndex: 1000 });
+    // FIX 2: reveal only after position is calculated
+    setStyle({ position: 'fixed', top, left, zIndex: 1000, visibility: 'visible' });
   }, [messageElement]);
 
+  // FIX 3: reliable grace period using a ref + setTimeout
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target)) onClose();
+    const timer = setTimeout(() => {
+      readyRef.current = true;
+    }, 300);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // FIX 4: only use 'mousedown' + 'touchstart', skip redundant 'click'
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (!readyRef.current) return;
+      if (messageElement?.contains(e.target)) return;
+      if (pickerRef.current?.contains(e.target)) return;
+      onClose();
     };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, [onClose]);
+
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside, { passive: true });
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [onClose, messageElement]);
 
   const handleSelect = (reaction) => {
     onSelect(reaction.isRemove ? null : reaction.emoji);
+    onClose(); // close picker after selection
   };
 
   return (

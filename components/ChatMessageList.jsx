@@ -1,80 +1,70 @@
-import React, { useRef, useEffect } from 'react';
+// src/components/ChatMessageList.jsx  –  OPTIMIZED
+import React, { useRef, useEffect, memo } from 'react';
 import ChatEmptyState from './ChatEmptyState';
 import ChatTypingIndicator from './ChatTypingIndicator';
 import ChatMessage from './ChatMessage';
 
-const ChatMessageList = ({
+const ChatMessageList = memo(({
   messages,
   currentUser,
   typingPartner,
   attachSwipe,
+  setReply,
   onAddReaction,
   showToast,
   partnerName,
   searchQuery,
   containerRef,
-  loadingOlder
+  loadingOlder,
 }) => {
-  const messagesEndRef = useRef(null);
-  const initialScrollDone = useRef(false);
-  const prevMessagesLength = useRef(0);
+  const messagesEndRef      = useRef(null);
+  const initialScrollDone   = useRef(false);
+  const prevMessagesLength  = useRef(0);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
 
-  // Initial load: scroll to bottom once
+  // Initial load: scroll once
   useEffect(() => {
     if (!initialScrollDone.current && messages.length > 0 && !loadingOlder) {
       scrollToBottom();
       initialScrollDone.current = true;
     }
-  }, [messages, loadingOlder]);
+  }, [messages.length, loadingOlder]);
 
-  // Auto-scroll on new message if near bottom
+  // Auto-scroll on new message if near bottom or own message
   useEffect(() => {
     if (!containerRef?.current) return;
-    const container = containerRef.current;
-    const isNearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    const c = containerRef.current;
+    const nearBottom  = c.scrollHeight - c.scrollTop - c.clientHeight < 100;
     const lastMessage = messages[messages.length - 1];
-    const isOwnNewMessage =
-      lastMessage &&
-      lastMessage.role === currentUser?.role &&
-      messages.length > prevMessagesLength.current;
-    if (isNearBottom || isOwnNewMessage) scrollToBottom();
+    const isOwnNew    = lastMessage?.role === currentUser?.role
+                        && messages.length > prevMessagesLength.current;
+    if (nearBottom || isOwnNew) scrollToBottom();
     prevMessagesLength.current = messages.length;
-  }, [messages]);
+  }, [messages.length]); // length only — avoids re-running on reaction/readBy updates
 
-  // Filter messages by search query
-  const filteredMessages =
-    searchQuery?.trim() === ''
-      ? messages
-      : messages.filter((msg) =>
-          msg.text.toLowerCase().includes(searchQuery?.toLowerCase() || '')
-        );
+  // Filtered messages — recomputed only when messages array or query changes
+  const filteredMessages = React.useMemo(() => {
+    if (!searchQuery?.trim()) return messages;
+    const q = searchQuery.toLowerCase();
+    return messages.filter(m => m.text?.toLowerCase().includes(q));
+  }, [messages, searchQuery]);
 
   if (filteredMessages.length === 0) {
     return (
-      <div
-        ref={containerRef}
-        className="chat-messages-scroll"
-        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-      >
-        {searchQuery ? (
-          <div className="no-results">No messages match your search</div>
-        ) : (
-          <ChatEmptyState />
-        )}
+      <div ref={containerRef} className="chat-messages-scroll"
+        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {searchQuery
+          ? <div className="no-results">No messages match your search</div>
+          : <ChatEmptyState />}
       </div>
     );
   }
 
   return (
     <div ref={containerRef} className="chat-messages-scroll">
-      {loadingOlder && (
-        <div className="loading-older">Loading earlier messages…</div>
-      )}
+      {loadingOlder && <div className="loading-older">Loading earlier messages…</div>}
 
       {filteredMessages.map((msg) => (
         <ChatMessage
@@ -82,6 +72,7 @@ const ChatMessageList = ({
           message={msg}
           currentUser={currentUser}
           attachSwipe={attachSwipe}
+          setReply={setReply}
           onAddReaction={onAddReaction}
           showToast={showToast}
           partnerName={partnerName}
@@ -93,6 +84,7 @@ const ChatMessageList = ({
       <div ref={messagesEndRef} />
     </div>
   );
-};
+});
 
+ChatMessageList.displayName = 'ChatMessageList';
 export default ChatMessageList;
