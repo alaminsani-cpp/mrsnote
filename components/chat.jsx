@@ -59,7 +59,25 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const presenceRef = ref(db, `${chatRoom}/presence`);
   const moodRef = ref(db, `${chatRoom}/moods`);
 
-  // Load messages (initial or older)
+  // ------------------------------------------------------------------
+  // Helper: mark a single message as read (only if not already marked)
+  // ------------------------------------------------------------------
+  const markMessageAsReadIfNeeded = async (messageId, messageRole) => {
+    if (!currentUser || messageRole === currentUser.role) return;
+    const readRef = ref(db, `${chatRoom}/messages/${messageId}/readBy/${currentUser.role}`);
+    try {
+      const snapshot = await get(readRef);
+      if (!snapshot.exists()) {
+        await set(readRef, Date.now());
+      }
+    } catch (error) {
+      console.error('Failed to mark message as read:', error);
+    }
+  };
+
+  // ------------------------------------------------------------------
+  // Load messages (initial or older) – mark all incoming messages as read
+  // ------------------------------------------------------------------
   const loadMessages = async (lastKey = null) => {
     if (loadingOlder) return;
     setLoadingOlder(true);
@@ -89,6 +107,11 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         return unique;
       });
 
+      // Mark all newly loaded messages as read
+      for (const msg of newMessages) {
+        await markMessageAsReadIfNeeded(msg.id, msg.role);
+      }
+
       if (!lastKey) {
         lastLoadedKeyRef.current = newMessages.length > 0 ? newMessages[newMessages.length - 1].id : '';
         isInitialLoad.current = true;
@@ -109,7 +132,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     loadMessages();
   }, [isOpen, currentUser]);
 
-  // Real-time NEW messages listener
+  // Real-time NEW messages listener (marks read immediately)
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     if (lastLoadedKeyRef.current === null) return;
@@ -118,20 +141,21 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       ? query(messagesRef, orderByKey())
       : query(messagesRef, orderByKey(), startAfter(lastLoadedKeyRef.current));
 
-    const unsubscribe = onChildAdded(newMsgsQuery, (snap) => {
+    const unsubscribe = onChildAdded(newMsgsQuery, async (snap) => {
       const msg = { id: snap.key, ...snap.val() };
       lastLoadedKeyRef.current = snap.key;
       setMessages(prev => {
         if (prev.some(m => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
+      // Mark as read if needed
+      await markMessageAsReadIfNeeded(msg.id, msg.role);
       showDiscreetNotification(msg);
-      if (msg.role !== currentUser.role) markAsRead(msg.id);
     });
     return () => unsubscribe();
   }, [isOpen, currentUser, lastLoadedKeyRef.current]);
 
-  // Message updates
+  // Message updates (reactions, read status)
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsubscribe = onChildChanged(messagesRef, (snap) => {
@@ -154,7 +178,23 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsubscribe();
   }, [isOpen, currentUser]);
 
-  // Presence
+  // ------------------------------------------------------------------
+  // FIXED Presence: use boolean online flag and proper disconnect
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    if (!isOpen || !currentUser) return;
+    const onlineRef = ref(db, `${chatRoom}/presence/${currentUser.role}/online`);
+    const lastSeenRef = ref(db, `${chatRoom}/presence/${currentUser.role}/lastSeen`);
+    set(onlineRef, true);
+    onDisconnect(onlineRef).set(false);
+    onDisconnect(lastSeenRef).set(Date.now());
+    return () => {
+      set(onlineRef, false);
+      set(lastSeenRef, Date.now());
+    };
+  }, [isOpen, currentUser]);
+
+  // Listen to partner presence (online / lastSeen)
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsubscribe = onValue(presenceRef, (snap) => {
@@ -162,7 +202,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       const partnerRole = currentUser.role === 'her' ? 'him' : 'her';
       const partner = data[partnerRole] || {};
       setIsPartnerOnline(partner.online === true);
-      setPartnerLastSeen(partner.lastSeen);
+      setPartnerLastSeen(partner.lastSeen || null);
     });
     return () => unsubscribe();
   }, [isOpen, currentUser]);
@@ -177,20 +217,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       if (data[currentUser.role]) setMyMood(data[currentUser.role]);
     });
     return () => unsubscribe();
-  }, [isOpen, currentUser]);
-
-  // Set online status
-  useEffect(() => {
-    if (!isOpen || !currentUser) return;
-    const onlineRef = ref(db, `${chatRoom}/presence/${currentUser.role}/online`);
-    const lastSeenRef = ref(db, `${chatRoom}/presence/${currentUser.role}/lastSeen`);
-    set(onlineRef, true);
-    onDisconnect(onlineRef).remove();
-    onDisconnect(lastSeenRef).set(Date.now());
-    return () => {
-      set(onlineRef, null);
-      set(lastSeenRef, Date.now());
-    };
   }, [isOpen, currentUser]);
 
   // Scroll behaviour
@@ -253,23 +279,12 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     };
     document.addEventListener('click', handleInteraction);
     return () => document.removeEventListener('click', handleInteraction);
-  }, []);
+  }, [requestPermission]);
 
-  const markAsRead = (messageId) => {
-    const readRef = ref(db, `${chatRoom}/messages/${messageId}/readBy/${currentUser.role}`);
-    set(readRef, Date.now());
-  };
-
-  // ------------------------------------------------------------------
-  // UPDATED sendMessage to accept both text and imageUrl
-  // ------------------------------------------------------------------
+  // Send message (unchanged)
   const sendMessage = async (msgData = {}) => {
     const { text, imageUrl } = msgData;
-
-    // Nothing to send
     if (!text?.trim() && !imageUrl) return;
-
-    // Build message object
     const message = {
       role: currentUser.role,
       displayName: currentUser.displayName,
@@ -277,8 +292,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     };
     if (text?.trim()) message.text = text.trim();
     if (imageUrl) message.imageUrl = imageUrl;
-
-    // Include reply data if replying
     if (activeReply) {
       message.replyTo = {
         text: activeReply.text,
@@ -287,16 +300,10 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       };
       clearReply();
     }
-
-    // Push to Firebase
     await push(messagesRef, message);
-
-    // Reset input
     setInputText('');
-    // Stop typing indicator
     set(typingRef, null);
   };
-  // ------------------------------------------------------------------
 
   const handleTyping = () => {
     set(typingRef, { [currentUser.role]: Date.now() });
@@ -331,7 +338,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isOpen]);
+  }, [isOpen, showToast]);
 
   const availableMoods = [
     { emoji: '😊', label: 'Happy', key: 'happy' },
@@ -390,7 +397,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       <ChatInputArea
         inputText={inputText}
         setInputText={setInputText}
-        onSend={sendMessage}          // ← now accepts { text, imageUrl }
+        onSend={sendMessage}
         onTyping={handleTyping}
         activeReply={activeReply}
         clearReply={clearReply}
