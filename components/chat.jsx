@@ -1,8 +1,8 @@
-// src/components/Chat.jsx
-import { useState, useEffect, useRef } from 'react';
+// src/components/Chat.jsx (modified)
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   db, ref, push, onChildAdded, onChildChanged, set, onValue, onDisconnect,
-  orderByKey, limitToLast, endBefore, startAfter, query, get
+  orderByKey, limitToLast, endBefore, startAfter, query, get, serverTimestamp
 } from '../src/firebase';
 import ChatHeader from './ChatHeader';
 import ChatMessageList from './ChatMessageList';
@@ -36,6 +36,10 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const prevScrollHeightRef = useRef(0);
   const chatRoom = 'privateChats/secret_blossom_chat';
 
+  // Heartbeat interval ref
+  const heartbeatIntervalRef = useRef(null);
+  const lastActiveRef = useRef(Date.now());
+
   // Custom hooks
   const { activeReply, clearReply, attachSwipe } = useSwipeToReply();
   const { requestPermission, showDiscreetNotification } = useDiscreetNotifications(currentUser, isOpen);
@@ -60,7 +64,22 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const moodRef = ref(db, `${chatRoom}/moods`);
 
   // ------------------------------------------------------------------
-  // Helper: mark a single message as read (only if not already marked)
+  // Update lastActive timestamp (used for online/offline)
+  // ------------------------------------------------------------------
+  const updateLastActive = useCallback(async () => {
+    if (!isOpen || !currentUser) return;
+    const now = Date.now();
+    lastActiveRef.current = now;
+    const lastActiveRefDb = ref(db, `${chatRoom}/presence/${currentUser.role}/lastActive`);
+    try {
+      await set(lastActiveRefDb, now);
+    } catch (error) {
+      console.error('Failed to update lastActive:', error);
+    }
+  }, [isOpen, currentUser, chatRoom]);
+
+  // ------------------------------------------------------------------
+  // Helper: mark a single message as read
   // ------------------------------------------------------------------
   const markMessageAsReadIfNeeded = async (messageId, messageRole) => {
     if (!currentUser || messageRole === currentUser.role) return;
@@ -76,7 +95,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   };
 
   // ------------------------------------------------------------------
-  // Load messages (initial or older) – mark all incoming messages as read
+  // Load messages (initial or older)
   // ------------------------------------------------------------------
   const loadMessages = async (lastKey = null) => {
     if (loadingOlder) return;
@@ -107,7 +126,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         return unique;
       });
 
-      // Mark all newly loaded messages as read
       for (const msg of newMessages) {
         await markMessageAsReadIfNeeded(msg.id, msg.role);
       }
@@ -132,7 +150,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     loadMessages();
   }, [isOpen, currentUser]);
 
-  // Real-time NEW messages listener (marks read immediately)
+  // Real-time NEW messages listener
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     if (lastLoadedKeyRef.current === null) return;
@@ -148,7 +166,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         if (prev.some(m => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
-      // Mark as read if needed
       await markMessageAsReadIfNeeded(msg.id, msg.role);
       showDiscreetNotification(msg);
     });
@@ -179,30 +196,52 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   }, [isOpen, currentUser]);
 
   // ------------------------------------------------------------------
-  // FIXED Presence: use boolean online flag and proper disconnect
+  // FIXED PRESENCE: lastActive heartbeat + online inference
   // ------------------------------------------------------------------
   useEffect(() => {
     if (!isOpen || !currentUser) return;
-    const onlineRef = ref(db, `${chatRoom}/presence/${currentUser.role}/online`);
-    const lastSeenRef = ref(db, `${chatRoom}/presence/${currentUser.role}/lastSeen`);
-    set(onlineRef, true);
-    onDisconnect(onlineRef).set(false);
-    onDisconnect(lastSeenRef).set(Date.now());
-    return () => {
-      set(onlineRef, false);
-      set(lastSeenRef, Date.now());
-    };
-  }, [isOpen, currentUser]);
 
-  // Listen to partner presence (online / lastSeen)
+    // 1. Write initial lastActive
+    updateLastActive();
+
+    // 2. Set up heartbeat interval (every 30 seconds)
+    heartbeatIntervalRef.current = setInterval(() => {
+      updateLastActive();
+    }, 30000);
+
+    // 3. On disconnect: write final lastActive timestamp
+    const finalActiveRef = ref(db, `${chatRoom}/presence/${currentUser.role}/lastActive`);
+    onDisconnect(finalActiveRef).set(Date.now());
+
+    // 4. Cleanup on unmount or chat close
+    return () => {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      // Write final lastActive immediately
+      const finalRef = ref(db, `${chatRoom}/presence/${currentUser.role}/lastActive`);
+      set(finalRef, Date.now()).catch(console.error);
+    };
+  }, [isOpen, currentUser, chatRoom, updateLastActive]);
+
+  // Listen to partner presence (compute online from lastActive)
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsubscribe = onValue(presenceRef, (snap) => {
       const data = snap.val() || {};
       const partnerRole = currentUser.role === 'her' ? 'him' : 'her';
       const partner = data[partnerRole] || {};
-      setIsPartnerOnline(partner.online === true);
-      setPartnerLastSeen(partner.lastSeen || null);
+      const lastActive = partner.lastActive;
+      if (lastActive && typeof lastActive === 'number') {
+        const now = Date.now();
+        const isOnline = (now - lastActive) < 60000; // within last 60 seconds = online
+        setIsPartnerOnline(isOnline);
+        setPartnerLastSeen(lastActive);
+      } else {
+        setIsPartnerOnline(false);
+        setPartnerLastSeen(null);
+      }
     });
     return () => unsubscribe();
   }, [isOpen, currentUser]);
@@ -281,10 +320,14 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => document.removeEventListener('click', handleInteraction);
   }, [requestPermission]);
 
-  // Send message (unchanged)
+  // Send message – also update lastActive
   const sendMessage = async (msgData = {}) => {
     const { text, imageUrl } = msgData;
     if (!text?.trim() && !imageUrl) return;
+    
+    // Update lastActive on message send
+    await updateLastActive();
+
     const message = {
       role: currentUser.role,
       displayName: currentUser.displayName,
@@ -307,6 +350,8 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
 
   const handleTyping = () => {
     set(typingRef, { [currentUser.role]: Date.now() });
+    // Also update lastActive on typing (throttled by Firebase, but fine)
+    updateLastActive();
   };
 
   const setUserMood = (moodKey) => {
@@ -325,6 +370,8 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       } else {
         await set(reactionRef, emoji);
       }
+      // Update lastActive on reaction (activity)
+      await updateLastActive();
     } catch (error) {
       console.error('Failed to save reaction:', error);
     }
