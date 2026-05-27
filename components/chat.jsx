@@ -50,7 +50,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   // Custom hooks
   const { activeReply, clearReply, attachSwipe, setActiveReply } = useSwipeToReply();
   const { requestPermission, showDiscreetNotification }          = useDiscreetNotifications(currentUser, isOpen);
-  const keyboardStyle = useKeyboardAvoiding(isOpen, 0);
+  const keyboardStyle = useKeyboardAvoiding(isOpen, 20);
   usePreventSelection(isOpen);
   const tabHidden = useTabVisibilityBlur(isOpen);
 
@@ -364,8 +364,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   if (!isOpen) return null;
 
   return (
-    <div style={keyboardStyle} className="chat-root fixed inset-0 z-50 bg-[#080b10] flex flex-col font-sans">
-      {tabHidden && (
+    <div style={keyboardStyle} className="chat-root z-50 bg-[#080b10] flex flex-col font-sans">      {tabHidden && (
         <div className="tab-hidden-overlay">
           <div className="tab-hidden-content">
             <span className="tab-hidden-icon">🔒</span>
