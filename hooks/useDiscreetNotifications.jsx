@@ -6,12 +6,9 @@ const NOTIFICATION_PHRASES = [
   "A whisper arrived.",
   "A petal fell from the tree.",
   "A secret was shared.",
-<<<<<<< HEAD
   "A distant hum heard.",
   "A soft breeze carries a word."
-=======
-  "A distant hum heard."
->>>>>>> 373cd9f (Updated project)
+
 ];
 
 const getRandomPhrase = () => {
