@@ -292,8 +292,8 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
 
   // ── Send message ──────────────────────────────────────────────────
   const sendMessage = useCallback(async (msgData = {}) => {
-    const { text, imageUrl } = msgData;
-    if (!text?.trim() && !imageUrl) return;
+    const { text, imageUrl, videoUrl } = msgData;
+    if (!text?.trim() && !imageUrl && !videoUrl) return;
 
     // Don't await lastActive — non-blocking
     updateLastActive();
@@ -303,13 +303,15 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       displayName: currentUser.displayName,
       ts:          Date.now(),
     };
-    if (text?.trim()) message.text = text.trim();
+    if (text?.trim()) message.text    = text.trim();
     if (imageUrl)     message.imageUrl = imageUrl;
+    if (videoUrl)     message.videoUrl = videoUrl;
     if (activeReply) {
       message.replyTo = {
         text:    activeReply.text,
         sender:  activeReply.sender,
         isImage: activeReply.isImage || false,
+        isVideo: activeReply.isVideo || false,
       };
       clearReply();
     }
