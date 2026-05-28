@@ -39,64 +39,99 @@ const renderText = (text, query) => {
 
 // ─── Video player component ──────────────────────────────────────────
 const VideoPlayer = ({ url, isSent }) => {
-  const [error, setError] = useState(false);
+  const videoRef  = useRef(null);
+  const [error,    setError]    = useState(false);
+  const [playing,  setPlaying]  = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [current,  setCurrent]  = useState(0);
 
-  const handleDownload = async (e) => {
+  const togglePlay = (e) => {
     e.stopPropagation();
-    try {
-      const res  = await fetch(url);
-      const blob = await res.blob();
-      const bUrl = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = bUrl;
-      // derive filename from URL or fallback
-      const parts   = url.split('/');
-      const rawName = parts[parts.length - 1].split('?')[0];
-      a.download = rawName || 'video.mp4';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(bUrl);
-    } catch {
-      // fallback — open in new tab
-      window.open(url, '_blank');
-    }
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) { v.play(); setPlaying(true); }
+    else          { v.pause(); setPlaying(false); }
+  };
+
+  const handleTimeUpdate = () => {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    const pct = (v.currentTime / v.duration) * 100;
+    setProgress(pct);
+    setCurrent(v.currentTime);
+  };
+
+  const handleSeek = (e) => {
+    e.stopPropagation();
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    v.currentTime = ((e.clientX - rect.left) / rect.width) * v.duration;
+  };
+
+  const fmt = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
   if (error) {
     return (
-      <div className="video-error">
-        <span>⚠️ Video unavailable</span>
-      </div>
+      <div className="video-error"><span>⚠️ Video unavailable</span></div>
     );
   }
 
   return (
     <div className={`video-wrap ${isSent ? 'video-wrap--sent' : 'video-wrap--recv'}`}>
-      <video
-        className="video-player"
-        src={url}
-        controls
-        preload="metadata"
-        playsInline
-        onClick={(e) => e.stopPropagation()}
-        onError={() => setError(true)}
-      />
-      <button
-        className="video-download-btn"
-        onClick={handleDownload}
-        aria-label="Download video"
-        type="button"
-        title="Download video"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        <span>Download</span>
-      </button>
+      {/* Video element — no native controls */}
+      <div className="video-stage" onClick={togglePlay}>
+        <video
+          ref={videoRef}
+          className="video-player"
+          src={url}
+          preload="metadata"
+          playsInline
+          onTimeUpdate={handleTimeUpdate}
+          onEnded={() => setPlaying(false)}
+          onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
+          onError={() => setError(true)}
+        />
+        {/* Centre play/pause overlay */}
+        <div className={`video-play-overlay ${playing ? 'video-play-overlay--playing' : ''}`}>
+          <div className={`video-play-btn ${isSent ? 'video-play-btn--sent' : 'video-play-btn--recv'}`}>
+            {playing
+              ? /* pause icon */
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="5"  y="3" width="4" height="18" rx="1"/>
+                    <rect x="15" y="3" width="4" height="18" rx="1"/>
+                  </svg>
+              : /* play icon */
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                  </svg>
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* Custom controls bar */}
+      <div className={`video-controls ${isSent ? 'video-controls--sent' : 'video-controls--recv'}`}>
+        <span className="video-time">{fmt(current)}</span>
+
+        <div className="video-progress-track" onClick={handleSeek}>
+          <div
+            className={`video-progress-fill ${isSent ? 'video-progress-fill--sent' : 'video-progress-fill--recv'}`}
+            style={{ width: `${progress}%` }}
+          />
+          <div
+            className={`video-progress-thumb ${isSent ? 'video-progress-thumb--sent' : 'video-progress-thumb--recv'}`}
+            style={{ left: `${progress}%` }}
+          />
+        </div>
+
+        <span className="video-time">{fmt(duration)}</span>
+      </div>
     </div>
   );
 };
@@ -194,8 +229,7 @@ const ChatMessage = memo(({
             alt="Shared image"
             loading="lazy"
             decoding="async"
-            className="max-w-full rounded-lg cursor-pointer"
-            style={{ maxHeight: '200px', objectFit: 'cover' }}
+            className="media-fixed"
             onClick={(e) => { e.stopPropagation(); window.open(message.imageUrl, '_blank'); }}
             onError={(e) => { e.target.style.display = 'none'; showToast('Failed to load image'); }}
           />

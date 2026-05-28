@@ -961,118 +961,25 @@
 }
 
 
-.message-image img {
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+/* ─── Consistent media width (images + videos share same fixed size) ── */
+.media-fixed {
+  display: block;
+  width: 240px;
+  height: 180px;
+  object-fit: cover;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
   transition: transform 0.2s, box-shadow 0.2s;
 }
-.message-image img:hover {
+
+.media-fixed:hover {
   transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-}
-/* ─── Video picker button ────────────────────────────────────── */
-.video-picker-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-glass);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.15s;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
 }
 
-.video-picker-btn:hover:not(.disabled) {
-  background: var(--bg-glass-hover);
-  color: var(--her-accent);
-  border-color: var(--border-glow);
-  transform: scale(1.08);
-}
-
-.video-picker-btn.disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* ─── Video wrapper ──────────────────────────────────────────── */
-.message-video {
-  /* matches .message-image spacing */
-}
-
-.video-wrap {
-  position: relative;
-  border-radius: 12px;
-  overflow: hidden;
-  max-width: 280px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--border-subtle);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.video-wrap--sent {
-  border-color: var(--him-bubble-border);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 12px var(--him-glow);
-}
-
-.video-wrap--recv {
-  border-color: var(--her-bubble-border);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 12px var(--her-glow);
-}
-
-/* ─── Video player element ───────────────────────────────────── */
-.video-player {
-  display: block;
-  width: 100%;
-  max-height: 200px;
-  object-fit: contain;
-  background: #000;
-  border-radius: 12px 12px 0 0;
-  outline: none;
-}
-
-/* Style native controls slightly via accent */
-.video-player::-webkit-media-controls-panel {
-  background: rgba(10, 13, 18, 0.85);
-}
-
-/* ─── Download button ────────────────────────────────────────── */
-.video-download-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 100%;
-  padding: 7px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: none;
-  border-top: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-  border-radius: 0 0 12px 12px;
-}
-
-.video-download-btn:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--text-primary);
-}
-
-/* ─── Video error state ──────────────────────────────────────── */
-.video-error {
-  padding: 14px 16px;
-  font-size: 12px;
-  color: var(--text-muted);
-  font-style: italic;
-  font-family: var(--font-serif);
-  text-align: center;
-}
-
-/* ─── image-picker-btn (if not already defined) ──────────────── */
+/* ─── Video picker / image-picker buttons ──────────────────────── */
+.video-picker-btn,
 .image-picker-btn {
   width: 36px;
   height: 36px;
@@ -1085,6 +992,7 @@
   transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.15s;
 }
 
+.video-picker-btn:hover:not(.disabled),
 .image-picker-btn:hover:not(.disabled) {
   background: var(--bg-glass-hover);
   color: var(--her-accent);
@@ -1092,7 +1000,192 @@
   transform: scale(1.08);
 }
 
+.video-picker-btn.disabled,
 .image-picker-btn.disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ─── Video wrapper ────────────────────────────────────────────── */
+.video-wrap {
+  width: 240px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  user-select: none;
+}
+
+.video-wrap--sent {
+  border-color: var(--her-bubble-border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 12px var(--her-glow);
+}
+
+.video-wrap--recv {
+  border-color: var(--him-bubble-border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 12px var(--him-glow);
+}
+
+/* ─── Video stage (click area) ─────────────────────────────────── */
+.video-stage {
+  position: relative;
+  width: 100%;
+  cursor: pointer;
+  background: #000;
+}
+
+/* ─── Video element — no native controls ───────────────────────── */
+.video-player {
+  display: block;
+  width: 100%;
+  height: 160px;
+  object-fit: contain;
+  background: #000;
+  outline: none;
+  pointer-events: none; /* clicks handled by .video-stage */
+}
+
+/* ─── Centre play/pause overlay ────────────────────────────────── */
+.video-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.28);
+  transition: opacity 0.2s;
+}
+
+.video-play-overlay--playing {
+  opacity: 0;
+}
+
+.video-stage:hover .video-play-overlay--playing {
+  opacity: 1;
+}
+
+.video-play-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.video-play-btn--sent {
+  background: rgba(122, 173, 232, 0.22);
+  border: 1.5px solid rgba(122, 173, 232, 0.5);
+  color: var(--her-accent);
+  box-shadow: 0 0 16px rgba(60,110,200,0.35), inset 0 0 10px rgba(122,173,232,0.1);
+}
+
+.video-play-btn--recv {
+  background: rgba(232, 131, 122, 0.22);
+  border: 1.5px solid rgba(232, 131, 122, 0.5);
+  color: var(--him-accent);
+  box-shadow: 0 0 16px rgba(200,90,80,0.35), inset 0 0 10px rgba(232,131,122,0.1);
+}
+
+.video-stage:hover .video-play-btn {
+  transform: scale(1.1);
+}
+
+/* ─── Custom controls bar ──────────────────────────────────────── */
+.video-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(8, 11, 16, 0.7);
+}
+
+.video-controls--sent {
+  border-top-color: rgba(122, 173, 232, 0.15);
+}
+
+.video-controls--recv {
+  border-top-color: rgba(232, 131, 122, 0.15);
+}
+
+.video-time {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  min-width: 28px;
+}
+
+/* ─── Progress track ───────────────────────────────────────────── */
+.video-progress-track {
+  position: relative;
+  flex: 1;
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.video-progress-track:hover {
+  height: 5px;
+}
+
+.video-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+.video-progress-fill--sent {
+  background: linear-gradient(90deg, var(--her-accent), rgba(122,173,232,0.7));
+}
+
+.video-progress-fill--recv {
+  background: linear-gradient(90deg, var(--him-accent), rgba(232,131,122,0.7));
+}
+
+.video-progress-thumb {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.video-progress-track:hover .video-progress-thumb {
+  opacity: 1;
+}
+
+.video-progress-thumb--sent {
+  background: var(--her-accent);
+  box-shadow: 0 0 6px var(--her-glow);
+}
+
+.video-progress-thumb--recv {
+  background: var(--him-accent);
+  box-shadow: 0 0 6px var(--him-glow);
+}
+
+/* ─── Video error state ────────────────────────────────────────── */
+.video-error {
+  width: 240px;
+  padding: 24px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: var(--font-serif);
+  text-align: center;
+  background: rgba(0,0,0,0.3);
+  border-radius: 12px;
 }
