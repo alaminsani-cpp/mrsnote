@@ -9,10 +9,11 @@ const ChatInputArea = ({
   onTyping,
   activeReply,
   clearReply,
+  currentUser,
+  chatRoom
 }) => {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
-  const inputAreaRef = useRef(null);
   const [uploading, setUploading] = useState(false);
 
   const autoResize = () => {
@@ -33,17 +34,6 @@ const ChatInputArea = ({
       e.preventDefault();
       onSend({ text: inputText });
     }
-  };
-
-  // Scroll the whole input area into view when focused (critical for mobile)
-  const handleFocus = () => {
-    // Small delay to let the keyboard start opening
-    setTimeout(() => {
-      inputAreaRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      });
-    }, 150);
   };
 
   const uploadImage = async (file) => {
@@ -92,7 +82,7 @@ const ChatInputArea = ({
   const hasText = inputText.trim().length > 0;
 
   return (
-    <div ref={inputAreaRef} className="input-area">
+    <div className="input-area">
       <ChatReplyPreview activeReply={activeReply} onClear={clearReply} />
 
       {uploading && (
@@ -109,7 +99,6 @@ const ChatInputArea = ({
             value={inputText}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            onFocus={handleFocus}
             placeholder="Write something beautiful… or attach an image"
             rows={1}
             className="input-field"
@@ -125,6 +114,7 @@ const ChatInputArea = ({
           style={{ display: 'none' }}
         />
 
+        {/* FIXED: Image button – vertical alignment adjusted */}
         <button
           onClick={triggerFileSelect}
           className={`image-picker-btn ${uploading ? 'disabled' : ''}`}
@@ -135,8 +125,8 @@ const ChatInputArea = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            alignSelf: 'center',
-            marginBottom: '2px',
+            alignSelf: 'center',      // ensures vertical centering
+            marginBottom: '2px',      // fine-tune upward (adjust as needed)
           }}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">

@@ -14,11 +14,10 @@ export const useKeyboardAvoiding = (enabled = true, extraPadding = 0) => {
     }
 
     const vv = window.visualViewport;
-    const winHeight = window.innerHeight;
 
     if (!vv) {
       setStyle({
-        height: winHeight,
+        height: window.innerHeight,
         top: 0,
         left: 0,
         right: 0,
@@ -29,12 +28,10 @@ export const useKeyboardAvoiding = (enabled = true, extraPadding = 0) => {
 
     if (rafId.current) cancelAnimationFrame(rafId.current);
     rafId.current = requestAnimationFrame(() => {
-      // Only add extraPadding when keyboard is open (viewport height reduced)
-      const isKeyboardOpen = vv.height < winHeight;
-      const finalPadding = isKeyboardOpen ? extraPadding : 0;
-      const newHeight = vv.height + finalPadding;
+      const newHeight = vv.height + extraPadding;
       const newTop = vv.offsetTop;
 
+      // Skip update if nothing changed — avoids spurious re-renders mid-keyboard-animation
       if (lastHeight.current === newHeight && lastTop.current === newTop) return;
       lastHeight.current = newHeight;
       lastTop.current = newTop;
@@ -45,7 +42,6 @@ export const useKeyboardAvoiding = (enabled = true, extraPadding = 0) => {
         left: 0,
         right: 0,
         position: 'fixed',
-        overflowY: 'auto',
       });
     });
   }, [enabled, extraPadding]);
@@ -57,7 +53,9 @@ export const useKeyboardAvoiding = (enabled = true, extraPadding = 0) => {
     }
 
     const vv = window.visualViewport;
+
     if (!vv) {
+      // Fallback for browsers without visualViewport support
       window.addEventListener('resize', updateStyle);
       updateStyle();
       return () => window.removeEventListener('resize', updateStyle);
