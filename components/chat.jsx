@@ -1,5 +1,5 @@
-// src/components/Chat.jsx  –  OPTIMIZED
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+// src/components/Chat.jsx
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import {
   db, ref, push, onChildAdded, onChildChanged, set, onValue, onDisconnect,
   orderByKey, limitToLast, endBefore, startAfter, query, get, serverTimestamp
@@ -16,36 +16,47 @@ import './chat.css';
 
 const CHAT_ROOM = 'privateChats/secret_blossom_chat';
 const PAGE_SIZE = 20;
-// Throttle typing/lastActive writes — one write per this many ms
 const TYPING_THROTTLE_MS = 3000;
 
 const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partnerAvatarEmoji }) => {
-  const [messages, setMessages]             = useState([]);
-  const [inputText, setInputText]           = useState('');
-  const [typingPartner, setTypingPartner]   = useState(false);
+  const [messages, setMessages]               = useState([]);
+  const [inputText, setInputText]             = useState('');
+  const [typingPartner, setTypingPartner]     = useState(false);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
   const [partnerLastSeen, setPartnerLastSeen] = useState(null);
-  const [partnerMood, setPartnerMood]       = useState(null);
-  const [myMood, setMyMood]                 = useState(null);
-  const [showMoodPicker, setShowMoodPicker] = useState(false);
-  const [searchQuery, setSearchQuery]       = useState('');
-  const [loadingOlder, setLoadingOlder]     = useState(false);
-  const [hasMore, setHasMore]               = useState(true);
+  const [partnerMood, setPartnerMood]         = useState(null);
+  const [myMood, setMyMood]                   = useState(null);
+  const [showMoodPicker, setShowMoodPicker]   = useState(false);
+  const [searchQuery, setSearchQuery]         = useState('');
+  const [loadingOlder, setLoadingOlder]       = useState(false);
+  const [hasMore, setHasMore]                 = useState(true);
 
-  const messagesContainerRef  = useRef(null);
-  const initialLoadDone       = useRef(false);
-  const lastLoadedKeyRef      = useRef(null);
-  const isInitialLoad         = useRef(true);
-  const prevScrollHeightRef   = useRef(0);
-  const heartbeatIntervalRef  = useRef(null);
-  const lastTypingWriteRef    = useRef(0);   // throttle guard
-  const lastActiveWriteRef    = useRef(0);   // throttle guard
+  // DOM refs
+  const messagesContainerRef = useRef(null);
+  const bottomSentinelRef    = useRef(null);
 
-  // ── Memoised Firebase refs (never recreated) ──────────────────────
+  // Logic refs — never cause re-renders
+  const initialLoadDone      = useRef(false);
+  const lastLoadedKeyRef     = useRef(null);   // newest Firebase key loaded so far
+  const oldestLoadedKeyRef   = useRef(null);   // oldest Firebase key loaded so far
+  const isInitialLoad        = useRef(true);
+  const prevScrollHeightRef  = useRef(0);
+  const heartbeatIntervalRef = useRef(null);
+  const lastTypingWriteRef   = useRef(0);
+  const lastActiveWriteRef   = useRef(0);
+  
+  // Ref-mirrors of state so the scroll handler never closes over stale values
+  const loadingOlderRef      = useRef(false);
+  const hasMoreRef           = useRef(true);
+  
+  // Guard flags to balance historical pagination against real-time additions
+  const realtimeListenerRef  = useRef(false);
+
+  // ── Memoised Firebase refs ────────────────────────────────────────
   const messagesRef = useMemo(() => ref(db, `${CHAT_ROOM}/messages`), []);
-  const typingRef   = useMemo(() => ref(db, `${CHAT_ROOM}/typing`), []);
+  const typingRef   = useMemo(() => ref(db, `${CHAT_ROOM}/typing`),   []);
   const presenceRef = useMemo(() => ref(db, `${CHAT_ROOM}/presence`), []);
-  const moodRef     = useMemo(() => ref(db, `${CHAT_ROOM}/moods`), []);
+  const moodRef     = useMemo(() => ref(db, `${CHAT_ROOM}/moods`),    []);
 
   // Custom hooks
   const { activeReply, clearReply, attachSwipe, setActiveReply } = useSwipeToReply();
@@ -54,7 +65,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   usePreventSelection(isOpen);
   const tabHidden = useTabVisibilityBlur(isOpen);
 
-  // ── Toast (stable reference) ───────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────
   const showToast = useCallback((msg) => {
     const toastEl = document.getElementById('toast');
     if (!toastEl) return;
@@ -63,37 +74,31 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     setTimeout(() => toastEl.classList.remove('show'), 2800);
   }, []);
 
-  // ── Throttled lastActive write ─────────────────────────────────────
+  const scrollToBottom = useCallback((smooth = false) => {
+    bottomSentinelRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+  }, []);
+
   const updateLastActive = useCallback(async () => {
     if (!isOpen || !currentUser) return;
     const now = Date.now();
-    // Only write if >25 s since last write (heartbeat handles the rest)
     if (now - lastActiveWriteRef.current < 25000) return;
     lastActiveWriteRef.current = now;
     try {
       await set(ref(db, `${CHAT_ROOM}/presence/${currentUser.role}/lastActive`), now);
-    } catch (e) {
-      console.error('lastActive write failed:', e);
-    }
+    } catch (e) { console.error('lastActive write failed:', e); }
   }, [isOpen, currentUser]);
 
-  // ── Force-write (no throttle gate) for heartbeat ──────────────────
   const forceUpdateLastActive = useCallback(async () => {
     if (!isOpen || !currentUser) return;
-    const now = Date.now();
-    lastActiveWriteRef.current = now;
+    lastActiveWriteRef.current = Date.now();
     try {
-      await set(ref(db, `${CHAT_ROOM}/presence/${currentUser.role}/lastActive`), now);
-    } catch (e) {
-      console.error('heartbeat write failed:', e);
-    }
+      await set(ref(db, `${CHAT_ROOM}/presence/${currentUser.role}/lastActive`), Date.now());
+    } catch (e) { console.error('heartbeat write failed:', e); }
   }, [isOpen, currentUser]);
 
-  // ── Batch mark-as-read (single pass, no sequential gets) ──────────
   const batchMarkAsRead = useCallback(async (msgs) => {
     if (!currentUser) return;
     const unread = msgs.filter(m => m.role !== currentUser.role && !m.readBy?.[currentUser.role]);
-    // Fire writes in parallel — no get() check, just overwrite
     await Promise.all(
       unread.map(m =>
         set(ref(db, `${CHAT_ROOM}/messages/${m.id}/readBy/${currentUser.role}`), Date.now())
@@ -101,75 +106,115 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     );
   }, [currentUser]);
 
-  // ── Load messages (initial or older) ──────────────────────────────
+  // ── Load messages ─────────────────────────────────────────────────
   const loadMessages = useCallback(async (lastKey = null) => {
-    if (loadingOlder) return;
+    if (loadingOlderRef.current) return;
+    if (lastKey && !hasMoreRef.current) return;
+
+    loadingOlderRef.current = true;
     setLoadingOlder(true);
+
+    if (lastKey) {
+      prevScrollHeightRef.current = messagesContainerRef.current?.scrollHeight ?? 0;
+    }
+
     try {
       const constraints = [orderByKey()];
       if (lastKey) constraints.push(endBefore(lastKey));
       constraints.push(limitToLast(PAGE_SIZE));
-      const snapshot = await get(query(messagesRef, ...constraints));
 
-      const newMessages = [];
-      snapshot.forEach(child => newMessages.push({ id: child.key, ...child.val() }));
-      if (newMessages.length < PAGE_SIZE) setHasMore(false);
+      const snapshot = await get(query(messagesRef, ...constraints));
+      const loaded   = [];
+      snapshot.forEach(child => {
+        loaded.push({ id: child.key, ...child.val() });
+      });
+
+      // If we got back fewer elements than the requested page size, 
+      // we have truly hit the absolute beginning of history.
+      if (loaded.length < PAGE_SIZE) {
+        hasMoreRef.current = false;
+        setHasMore(false);
+      }
+
+      if (loaded.length > 0) {
+        // Set oldest key to the first item of the chunk loaded
+        oldestLoadedKeyRef.current = loaded[0].id;
+        
+        // Only set the newest key boundary on the very first initial load
+        if (!lastKey) {
+          lastLoadedKeyRef.current = loaded[loaded.length - 1].id;
+          isInitialLoad.current = true;
+        }
+      }
 
       setMessages(prev => {
-        const merged = lastKey ? [...newMessages, ...prev] : [...prev, ...newMessages];
+        const merged = lastKey ? [...loaded, ...prev] : [...prev, ...loaded];
         const seen   = new Set();
         return merged
           .filter(m => seen.has(m.id) ? false : (seen.add(m.id), true))
           .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       });
 
-      // Batch read-receipts (parallel, no sequential gets)
-      batchMarkAsRead(newMessages);
+      batchMarkAsRead(loaded);
 
-      if (!lastKey) {
-        lastLoadedKeyRef.current = newMessages.length > 0
-          ? newMessages[newMessages.length - 1].id : '';
-        isInitialLoad.current = true;
-      } else {
-        prevScrollHeightRef.current = messagesContainerRef.current?.scrollHeight || 0;
-      }
     } catch (e) {
-      console.error('loadMessages failed:', e);
+      console.error('[loadMessages] Firebase error:', e);
     } finally {
+      loadingOlderRef.current = false;
       setLoadingOlder(false);
     }
-  }, [loadingOlder, messagesRef, batchMarkAsRead]);
+  }, [messagesRef, batchMarkAsRead]);
 
-  // Initial load
+  // ── Initial load triggering ───────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !currentUser || initialLoadDone.current) return;
     initialLoadDone.current = true;
     loadMessages();
-  }, [isOpen, currentUser]); // loadMessages excluded intentionally (stable after mount)
+  }, [isOpen, currentUser, loadMessages]);
 
-  // Real-time NEW messages listener
+  // ── Real-time new messages stream ─────────────────────────────────
   useEffect(() => {
-    if (!isOpen || !currentUser || lastLoadedKeyRef.current === null) return;
+    if (!isOpen || !currentUser)              return;
+    if (realtimeListenerRef.current)          return; 
+    if (lastLoadedKeyRef.current === null)    return; 
 
-    const newMsgsQuery = lastLoadedKeyRef.current === ''
+    realtimeListenerRef.current = true;
+
+    // Handle an empty chat initialization cleanly
+    const q = lastLoadedKeyRef.current === ''
       ? query(messagesRef, orderByKey())
       : query(messagesRef, orderByKey(), startAfter(lastLoadedKeyRef.current));
 
-    const unsub = onChildAdded(newMsgsQuery, (snap) => {
+    const unsub = onChildAdded(q, (snap) => {
       const msg = { id: snap.key, ...snap.val() };
+      
+      // Update our high-water boundary ref so pagination constraints don't collide
       lastLoadedKeyRef.current = snap.key;
-      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
-      // Single write, no get()
+      
+      setMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        
+        // If history tracking was completely uninitialized, lift boundaries
+        if (!oldestLoadedKeyRef.current) {
+          oldestLoadedKeyRef.current = msg.id;
+        }
+        return [...prev, msg];
+      });
+
       if (msg.role !== currentUser.role) {
         set(ref(db, `${CHAT_ROOM}/messages/${msg.id}/readBy/${currentUser.role}`), Date.now())
           .catch(console.error);
       }
       showDiscreetNotification(msg);
     });
-    return () => unsub();
-  }, [isOpen, currentUser, lastLoadedKeyRef.current]); // eslint-disable-line
 
-  // Message updates (reactions, read receipts)
+    return () => {
+      unsub();
+      realtimeListenerRef.current = false;
+    };
+  }, [isOpen, currentUser, messagesRef, showDiscreetNotification]);
+
+  // ── Message structural updates (Reactions, receipts) ─────────────
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsub = onChildChanged(messagesRef, (snap) => {
@@ -179,7 +224,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsub();
   }, [isOpen, currentUser, messagesRef]);
 
-  // Typing indicator
+  // ── Typing indicator stream ───────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsub = onValue(typingRef, (snap) => {
@@ -191,16 +236,13 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsub();
   }, [isOpen, currentUser, typingRef]);
 
-  // Presence heartbeat
+  // ── Presence Heartbeats ───────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !currentUser) return;
-
     forceUpdateLastActive();
     heartbeatIntervalRef.current = setInterval(forceUpdateLastActive, 30000);
-
     const finalRef = ref(db, `${CHAT_ROOM}/presence/${currentUser.role}/lastActive`);
     onDisconnect(finalRef).set(Date.now());
-
     return () => {
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
@@ -208,7 +250,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     };
   }, [isOpen, currentUser, forceUpdateLastActive]);
 
-  // Partner presence
+  // ── Partner Presence ──────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsub = onValue(presenceRef, (snap) => {
@@ -226,11 +268,11 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsub();
   }, [isOpen, currentUser, presenceRef]);
 
-  // Moods
+  // ── Mood handling ─────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const unsub = onValue(moodRef, (snap) => {
-      const data       = snap.val() || {};
+      const data        = snap.val() || {};
       const partnerRole = currentUser.role === 'her' ? 'him' : 'her';
       setPartnerMood(data[partnerRole] || null);
       if (data[currentUser.role]) setMyMood(data[currentUser.role]);
@@ -238,51 +280,65 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsub();
   }, [isOpen, currentUser, moodRef]);
 
-  // Scroll to bottom / restore position after load
-  useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container || messages.length === 0) return;
+  // ── Layout Adjustments & Scroll Anchor Restorations ───────────────
+  useLayoutEffect(() => {
+    if (messages.length === 0) return;
 
     if (isInitialLoad.current) {
-      container.scrollTop = container.scrollHeight;
+      scrollToBottom(false);
       isInitialLoad.current = false;
     } else if (prevScrollHeightRef.current > 0) {
-      container.scrollTop = container.scrollHeight - prevScrollHeightRef.current;
+      const c = messagesContainerRef.current;
+      if (c) {
+        c.scrollTop = c.scrollHeight - prevScrollHeightRef.current;
+      }
       prevScrollHeightRef.current = 0;
     } else {
-      const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      if (distFromBottom < 150) container.scrollTop = container.scrollHeight;
+      const c = messagesContainerRef.current;
+      if (c) {
+        const distFromBottom = c.scrollHeight - c.scrollTop - c.clientHeight;
+        if (distFromBottom < 150) scrollToBottom(true);
+      }
     }
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
-  // Load older on scroll to top
+  // ── Native Container Scroll Handling Listener ─────────────────────
   useEffect(() => {
+    if (!isOpen || !currentUser) return;
+
     const container = messagesContainerRef.current;
     if (!container) return;
+
     const handleScroll = () => {
-      if (container.scrollTop === 0 && hasMore && !loadingOlder && messages.length > 0) {
-        loadMessages(messages[0]?.id);
+      const atTop        = container.scrollTop <= 60; // Slightly larger threshold buffer
+      const canLoadMore  = hasMoreRef.current;
+      const notLoading   = !loadingOlderRef.current;
+      const hasOldestKey = oldestLoadedKeyRef.current !== null && oldestLoadedKeyRef.current !== undefined;
+
+      if (atTop && canLoadMore && notLoading && hasOldestKey) {
+        loadMessages(oldestLoadedKeyRef.current);
       }
     };
+
     container.addEventListener('scroll', handleScroll, { passive: true });
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [messages, hasMore, loadingOlder, loadMessages]);
+  }, [isOpen, currentUser, loadMessages]);
 
-  // Lock body scroll
+  // ── Body Scroll Locking Viewport Controls ─────────────────────────
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.cssText = 'overflow:hidden;position:fixed;width:100%';
     return () => { document.body.style.cssText = ''; };
   }, [isOpen]);
 
-  // Notification permission
+  // ── Interaction Registration Permissions ─────────────────────────
   useEffect(() => {
     const handle = () => { requestPermission(); document.removeEventListener('click', handle); };
     document.addEventListener('click', handle);
     return () => document.removeEventListener('click', handle);
   }, [requestPermission]);
 
-  // Tab hidden toast
+  // ── Tab Hide/Blur Interceptors ────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
     const handle = () => { if (document.hidden) showToast('🔒 Chat hidden – content protected'); };
@@ -290,20 +346,17 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => document.removeEventListener('visibilitychange', handle);
   }, [isOpen, showToast]);
 
-  // ── Send message ──────────────────────────────────────────────────
+  // ── Mutation: Dispatch Message payload ────────────────────────────
   const sendMessage = useCallback(async (msgData = {}) => {
     const { text, imageUrl, videoUrl } = msgData;
     if (!text?.trim() && !imageUrl && !videoUrl) return;
-
-    // Don't await lastActive — non-blocking
     updateLastActive();
-
     const message = {
       role:        currentUser.role,
       displayName: currentUser.displayName,
       ts:          Date.now(),
     };
-    if (text?.trim()) message.text    = text.trim();
+    if (text?.trim()) message.text     = text.trim();
     if (imageUrl)     message.imageUrl = imageUrl;
     if (videoUrl)     message.videoUrl = videoUrl;
     if (activeReply) {
@@ -315,30 +368,28 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       };
       clearReply();
     }
-
     await push(messagesRef, message);
     setInputText('');
     set(typingRef, null);
   }, [currentUser, activeReply, clearReply, messagesRef, typingRef, updateLastActive]);
 
-  // ── Throttled typing indicator ────────────────────────────────────
+  // ── Mutation: Typing Handlers ─────────────────────────────────────
   const handleTyping = useCallback(() => {
     const now = Date.now();
     if (now - lastTypingWriteRef.current < TYPING_THROTTLE_MS) return;
     lastTypingWriteRef.current = now;
     set(typingRef, { [currentUser.role]: now });
-    // updateLastActive is already throttled internally
     updateLastActive();
   }, [currentUser, typingRef, updateLastActive]);
 
-  // ── Mood ──────────────────────────────────────────────────────────
+  // ── Mutation: Mood state writes ──────────────────────────────────
   const setUserMood = useCallback((moodKey) => {
     setMyMood(moodKey);
     set(ref(db, `${CHAT_ROOM}/moods/${currentUser.role}`), moodKey);
     setShowMoodPicker(false);
   }, [currentUser]);
 
-  // ── Reaction ──────────────────────────────────────────────────────
+  // ── Mutation: Write message reactions ─────────────────────────────
   const addReaction = useCallback(async (messageId, emoji) => {
     if (!currentUser || !messageId) return;
     try {
@@ -347,9 +398,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         emoji ?? null
       );
       updateLastActive();
-    } catch (e) {
-      console.error('reaction failed:', e);
-    }
+    } catch (e) { console.error('reaction failed:', e); }
   }, [currentUser, updateLastActive]);
 
   const availableMoods = useMemo(() => [
@@ -391,19 +440,23 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         onClose={onClose}
         onSearch={setSearchQuery}
       />
-      <ChatMessageList
-        messages={messages}
-        currentUser={currentUser}
-        typingPartner={typingPartner}
-        attachSwipe={attachSwipe}
-        setReply={setActiveReply}
-        onAddReaction={addReaction}
-        showToast={showToast}
-        partnerName={partnerName}
-        searchQuery={searchQuery}
-        containerRef={messagesContainerRef}
-        loadingOlder={loadingOlder}
-      />
+
+      <div ref={messagesContainerRef} className="chat-messages-scroll">
+        <ChatMessageList
+          messages={messages}
+          currentUser={currentUser}
+          typingPartner={typingPartner}
+          attachSwipe={attachSwipe}
+          setReply={setActiveReply}
+          onAddReaction={addReaction}
+          showToast={showToast}
+          partnerName={partnerName}
+          searchQuery={searchQuery}
+          loadingOlder={loadingOlder}
+          bottomSentinelRef={bottomSentinelRef}
+        />
+      </div>
+
       <ChatInputArea
         inputText={inputText}
         setInputText={setInputText}

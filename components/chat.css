@@ -391,7 +391,7 @@
   flex-direction: column;
   gap: 4px;
   will-change: transform;
-  contain: strict;
+  contain: layout style; /* NOT strict/paint — those block scrollIntoView & scroll events */
   -webkit-overflow-scrolling: touch;
 
   /* Custom scrollbar */

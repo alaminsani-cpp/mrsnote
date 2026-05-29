@@ -1,4 +1,4 @@
-// src/components/ChatMessage.jsx  –  OPTIMIZED + VIDEO SUPPORT
+// src/components/ChatMessage.jsx  –  OPTIMIZED + VIDEO SUPPORT + LAZY VIDEO
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import EmojiBubble from './EmojiBubble';
 import ReactionPicker from './ReactionPicker';
@@ -38,13 +38,41 @@ const renderText = (text, query) => {
 };
 
 // ─── Video player component ──────────────────────────────────────────
+// FIX: uses IntersectionObserver so the <video> element (and its network
+// request) is only created once the player scrolls into the viewport.
+// Off-screen messages render a lightweight placeholder instead.
 const VideoPlayer = ({ url, isSent }) => {
-  const videoRef  = useRef(null);
-  const [error,    setError]    = useState(false);
-  const [playing,  setPlaying]  = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [current,  setCurrent]  = useState(0);
+  const containerRef = useRef(null);
+  const videoRef     = useRef(null);
+
+  // FIX: start false — only flip to true when the container enters viewport
+  const [isVisible, setIsVisible] = useState(false);
+  const [error,     setError]     = useState(false);
+  const [playing,   setPlaying]   = useState(false);
+  const [progress,  setProgress]  = useState(0);
+  const [duration,  setDuration]  = useState(0);
+  const [current,   setCurrent]   = useState(0);
+
+  // FIX: IntersectionObserver — mount video only when it scrolls into view.
+  // Once visible we never hide it again (unobserve after first intersection)
+  // so the element isn't torn down mid-playback when the user scrolls slightly.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.unobserve(el); // one-shot: stay mounted after first appear
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const togglePlay = (e) => {
     e.stopPropagation();
@@ -71,67 +99,77 @@ const VideoPlayer = ({ url, isSent }) => {
   };
 
   const fmt = (s) => {
-    const m = Math.floor(s / 60);
+    const m   = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  if (error) {
-    return (
-      <div className="video-error"><span>⚠️ Video unavailable</span></div>
-    );
-  }
-
   return (
-    <div className={`video-wrap ${isSent ? 'video-wrap--sent' : 'video-wrap--recv'}`}>
-      {/* Video element — no native controls */}
-      <div className="video-stage" onClick={togglePlay}>
-        <video
-          ref={videoRef}
-          className="video-player"
-          src={url}
-          preload="metadata"
-          playsInline
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={() => setPlaying(false)}
-          onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-          onError={() => setError(true)}
-        />
-        {/* Centre play/pause overlay */}
-        <div className={`video-play-overlay ${playing ? 'video-play-overlay--playing' : ''}`}>
+    <div
+      ref={containerRef}
+      className={`video-wrap ${isSent ? 'video-wrap--sent' : 'video-wrap--recv'}`}
+    >
+      {/* FIX: render placeholder until the container enters the viewport */}
+      {!isVisible ? (
+        <div className="video-placeholder">
           <div className={`video-play-btn ${isSent ? 'video-play-btn--sent' : 'video-play-btn--recv'}`}>
-            {playing
-              ? /* pause icon */
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="5"  y="3" width="4" height="18" rx="1"/>
-                    <rect x="15" y="3" width="4" height="18" rx="1"/>
-                  </svg>
-              : /* play icon */
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5,3 19,12 5,21"/>
-                  </svg>
-            }
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5,3 19,12 5,21" />
+            </svg>
           </div>
         </div>
-      </div>
+      ) : error ? (
+        <div className="video-error"><span>⚠️ Video unavailable</span></div>
+      ) : (
+        <>
+          {/* Video element — no native controls */}
+          <div className="video-stage" onClick={togglePlay}>
+            <video
+              ref={videoRef}
+              className="video-player"
+              src={url}
+              preload="metadata"
+              playsInline
+              onTimeUpdate={handleTimeUpdate}
+              onEnded={() => setPlaying(false)}
+              onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
+              onError={() => setError(true)}
+            />
+            {/* Centre play/pause overlay */}
+            <div className={`video-play-overlay ${playing ? 'video-play-overlay--playing' : ''}`}>
+              <div className={`video-play-btn ${isSent ? 'video-play-btn--sent' : 'video-play-btn--recv'}`}>
+                {playing
+                  ? <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <rect x="5"  y="3" width="4" height="18" rx="1"/>
+                      <rect x="15" y="3" width="4" height="18" rx="1"/>
+                    </svg>
+                  : <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <polygon points="5,3 19,12 5,21"/>
+                    </svg>
+                }
+              </div>
+            </div>
+          </div>
 
-      {/* Custom controls bar */}
-      <div className={`video-controls ${isSent ? 'video-controls--sent' : 'video-controls--recv'}`}>
-        <span className="video-time">{fmt(current)}</span>
+          {/* Custom controls bar */}
+          <div className={`video-controls ${isSent ? 'video-controls--sent' : 'video-controls--recv'}`}>
+            <span className="video-time">{fmt(current)}</span>
 
-        <div className="video-progress-track" onClick={handleSeek}>
-          <div
-            className={`video-progress-fill ${isSent ? 'video-progress-fill--sent' : 'video-progress-fill--recv'}`}
-            style={{ width: `${progress}%` }}
-          />
-          <div
-            className={`video-progress-thumb ${isSent ? 'video-progress-thumb--sent' : 'video-progress-thumb--recv'}`}
-            style={{ left: `${progress}%` }}
-          />
-        </div>
+            <div className="video-progress-track" onClick={handleSeek}>
+              <div
+                className={`video-progress-fill ${isSent ? 'video-progress-fill--sent' : 'video-progress-fill--recv'}`}
+                style={{ width: `${progress}%` }}
+              />
+              <div
+                className={`video-progress-thumb ${isSent ? 'video-progress-thumb--sent' : 'video-progress-thumb--recv'}`}
+                style={{ left: `${progress}%` }}
+              />
+            </div>
 
-        <span className="video-time">{fmt(duration)}</span>
-      </div>
+            <span className="video-time">{fmt(duration)}</span>
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -214,14 +252,14 @@ const ChatMessage = memo(({
 
   const bubbleContent = (
     <>
-      {/* Video */}
+      {/* Video — lazy loaded via IntersectionObserver inside VideoPlayer */}
       {message.videoUrl && (
         <div className="message-video mt-1 mb-1">
           <VideoPlayer url={message.videoUrl} isSent={isSent} />
         </div>
       )}
 
-      {/* Image */}
+      {/* Image — native browser lazy loading */}
       {message.imageUrl && (
         <div className="message-image mt-1 mb-1">
           <img
