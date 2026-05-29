@@ -173,31 +173,33 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   }, [isOpen, currentUser, loadMessages]);
 
   // ── Real-time new messages stream ─────────────────────────────────
+  // IMPORTANT: messages.length MUST stay in the dep array.
+  // The initial load is async — when this effect first runs, lastLoadedKeyRef
+  // is still null so the guard below bails out. Adding messages.length means
+  // the effect re-evaluates once loadMessages() finishes and populates
+  // lastLoadedKeyRef, giving it a second chance to register the listener.
+  // The realtimeListenerRef guard ensures it only ever registers once.
   useEffect(() => {
-    if (!isOpen || !currentUser)              return;
-    if (realtimeListenerRef.current)          return; 
-    if (lastLoadedKeyRef.current === null)    return; 
+    if (!isOpen || !currentUser)           return;
+    if (realtimeListenerRef.current)       return; // already registered — skip
+    if (lastLoadedKeyRef.current === null) return; // initial load not done yet — wait
 
     realtimeListenerRef.current = true;
 
-    // Handle an empty chat initialization cleanly
+    // Empty chat: listen from the beginning. Non-empty: listen after last seen key.
     const q = lastLoadedKeyRef.current === ''
       ? query(messagesRef, orderByKey())
       : query(messagesRef, orderByKey(), startAfter(lastLoadedKeyRef.current));
 
     const unsub = onChildAdded(q, (snap) => {
       const msg = { id: snap.key, ...snap.val() };
-      
-      // Update our high-water boundary ref so pagination constraints don't collide
+
+      // Advance the high-water mark so pagination endBefore never overlaps
       lastLoadedKeyRef.current = snap.key;
-      
+
       setMessages(prev => {
         if (prev.some(m => m.id === msg.id)) return prev;
-        
-        // If history tracking was completely uninitialized, lift boundaries
-        if (!oldestLoadedKeyRef.current) {
-          oldestLoadedKeyRef.current = msg.id;
-        }
+        if (!oldestLoadedKeyRef.current) oldestLoadedKeyRef.current = msg.id;
         return [...prev, msg];
       });
 
@@ -212,7 +214,9 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       unsub();
       realtimeListenerRef.current = false;
     };
-  }, [isOpen, currentUser, messagesRef, showDiscreetNotification]);
+  // messages.length is the trigger that fires this effect after the initial
+  // async load sets lastLoadedKeyRef — do not remove it from deps.
+  }, [isOpen, currentUser, messages.length, messagesRef, showDiscreetNotification]);
 
   // ── Message structural updates (Reactions, receipts) ─────────────
   useEffect(() => {
