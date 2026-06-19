@@ -48,7 +48,7 @@ const ChatHeader = ({
   // NEW: Token info component
   const TokenInfo = () => (
     <div className="mood-panel" style={{ width: '260px' }}>
-      <div className="mood-panel-label" style={{ marginBottom: '8px' }}>🔋 Token Budget</div>
+      <div className="mood-panel-label" style={{ marginBottom: '8px' }}>Token Budget</div>
       <div style={{ padding: '4px 0', fontSize: '14px', color: 'var(--text-primary)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
           <span>Balance</span>
