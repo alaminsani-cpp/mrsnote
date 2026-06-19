@@ -21,13 +21,13 @@ import {
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 const firebaseConfig = {
-  apiKey:            "AIzaSyDfQxXfOVfXN6_sI_wPSxDImGP1eTYmn0c",
-  authDomain:        "mrsnote-ac3e5.firebaseapp.com",
-  databaseURL:       "https://mrsnote-ac3e5-default-rtdb.firebaseio.com",
-  projectId:         "mrsnote-ac3e5",
-  storageBucket:     "mrsnote-ac3e5.firebasestorage.app",
-  messagingSenderId: "822769418996",
-  appId:             "1:822769418996:web:7a003ca8e908666a7bd4a1"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 
