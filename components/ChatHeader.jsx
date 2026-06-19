@@ -71,10 +71,10 @@ const ChatHeader = ({
           }} />
         </div>
         <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
-          <div>📝 Text: 1 token per 100 characters</div>
-          <div>⏱️ Active: 10 tokens per 10 min</div>
-          <div>📱 Open: 3 tokens per new session</div>
-          <div>📷 Photo: 8 tokens per image</div>
+          <div>Text: 1 token per 100 characters</div>
+          <div>Active: 10 tokens per 10 min</div>
+          <div>Open: 3 tokens per new session</div>
+          <div>Photo: 8 tokens per image</div>
           <div style={{ marginTop: '6px', fontStyle: 'italic' }}>
             Resets at midnight (local time)
           </div>
