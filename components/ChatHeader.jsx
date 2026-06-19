@@ -76,7 +76,7 @@ const ChatHeader = ({
           <div>Open: 3 tokens per new session</div>
           <div>Photo: 8 tokens per image</div>
           <div style={{ marginTop: '6px', fontStyle: 'italic' }}>
-            Resets at midnight (local time)
+            Resets at midnight (12:00AM)
           </div>
         </div>
       </div>
