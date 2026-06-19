@@ -12,6 +12,7 @@ import { useDiscreetNotifications } from '../hooks/useDiscreetNotifications';
 import { useKeyboardAvoiding } from '../hooks/useKeyboardAvoiding';
 import { usePreventSelection } from '../hooks/usePreventSelection';
 import { useTabVisibilityBlur } from '../hooks/useTabVisibilityBlur';
+import { useHeartbeat } from '../hooks/useHeartbeat'; // NEW
 import './chat.css';
 
 const CHAT_ROOM = 'privateChats/secret_blossom_chat';
@@ -30,6 +31,8 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const [searchQuery, setSearchQuery]         = useState('');
   const [loadingOlder, setLoadingOlder]       = useState(false);
   const [hasMore, setHasMore]                 = useState(true);
+  // NEW: token balance state
+  const [tokenBalance, setTokenBalance]       = useState(null);
 
   // DOM refs
   const messagesContainerRef = useRef(null);
@@ -57,6 +60,8 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const typingRef   = useMemo(() => ref(db, `${CHAT_ROOM}/typing`),   []);
   const presenceRef = useMemo(() => ref(db, `${CHAT_ROOM}/presence`), []);
   const moodRef     = useMemo(() => ref(db, `${CHAT_ROOM}/moods`),    []);
+  // NEW: token budget ref
+  const budgetRef   = useMemo(() => ref(db, `${CHAT_ROOM}/tokenBudget`), []);
 
   // Custom hooks
   const { activeReply, clearReply, attachSwipe, setActiveReply } = useSwipeToReply();
@@ -64,6 +69,9 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const keyboardStyle = useKeyboardAvoiding(isOpen, 0);
   usePreventSelection(isOpen);
   const tabHidden = useTabVisibilityBlur(isOpen);
+
+  // NEW: heartbeat hook – sends heartbeats every 30s when active
+  useHeartbeat(isOpen, currentUser);
 
   // ── Helpers ───────────────────────────────────────────────────────
   const showToast = useCallback((msg) => {
@@ -105,6 +113,78 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       )
     );
   }, [currentUser]);
+
+  // ── NEW: Send message via Netlify Function ──────────────────────
+  const sendMessage = useCallback(async (msgData = {}) => {
+    const { text, imageUrl, videoUrl } = msgData;
+    if (!text?.trim() && !imageUrl && !videoUrl) return;
+    updateLastActive();
+
+    const payload = {
+      text: text?.trim() || '',
+      imageUrl: imageUrl || '',
+      videoUrl: videoUrl || '',
+      role: currentUser.role,
+      displayName: currentUser.displayName,
+    };
+
+    try {
+      const response = await fetch('/.netlify/functions/sendMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        if (data.code === 'insufficient-tokens') {
+          showToast(`⚠️ Not enough tokens! Balance: ${data.balance}`);
+        } else {
+          showToast('❌ Failed to send message: ' + (data.error || 'Unknown error'));
+        }
+        return;
+      }
+
+      // On success, the message will appear via real-time listener
+      setInputText('');
+      set(typingRef, null);
+      // Update local balance if returned
+      if (data.newBalance !== undefined) {
+        setTokenBalance(data.newBalance);
+      }
+    } catch (err) {
+      console.error('sendMessage error:', err);
+      showToast('❌ Network error – please try again');
+    }
+  }, [currentUser, updateLastActive, typingRef, showToast]);
+
+  // ── NEW: Record app open ──────────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen || !currentUser) return;
+    fetch('/.netlify/functions/recordOpen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: currentUser.role }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.balance !== undefined) setTokenBalance(data.balance);
+        if (!data.success && data.error) {
+          showToast('⚠️ ' + data.error);
+        }
+      })
+      .catch(console.warn);
+  }, [isOpen, currentUser, showToast]);
+
+  // ── NEW: Subscribe to token balance ──────────────────────────────
+  useEffect(() => {
+    if (!isOpen) return;
+    const unsub = onValue(budgetRef, (snap) => {
+      const data = snap.val() || {};
+      setTokenBalance(data.balance ?? null);
+    });
+    return () => unsub();
+  }, [isOpen, budgetRef]);
 
   // ── Load messages ─────────────────────────────────────────────────
   const loadMessages = useCallback(async (lastKey = null) => {
@@ -350,33 +430,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => document.removeEventListener('visibilitychange', handle);
   }, [isOpen, showToast]);
 
-  // ── Mutation: Dispatch Message payload ────────────────────────────
-  const sendMessage = useCallback(async (msgData = {}) => {
-    const { text, imageUrl, videoUrl } = msgData;
-    if (!text?.trim() && !imageUrl && !videoUrl) return;
-    updateLastActive();
-    const message = {
-      role:        currentUser.role,
-      displayName: currentUser.displayName,
-      ts:          Date.now(),
-    };
-    if (text?.trim()) message.text     = text.trim();
-    if (imageUrl)     message.imageUrl = imageUrl;
-    if (videoUrl)     message.videoUrl = videoUrl;
-    if (activeReply) {
-      message.replyTo = {
-        text:    activeReply.text,
-        sender:  activeReply.sender,
-        isImage: activeReply.isImage || false,
-        isVideo: activeReply.isVideo || false,
-      };
-      clearReply();
-    }
-    await push(messagesRef, message);
-    setInputText('');
-    set(typingRef, null);
-  }, [currentUser, activeReply, clearReply, messagesRef, typingRef, updateLastActive]);
-
   // ── Mutation: Typing Handlers ─────────────────────────────────────
   const handleTyping = useCallback(() => {
     const now = Date.now();
@@ -443,6 +496,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         onSetMood={setUserMood}
         onClose={onClose}
         onSearch={setSearchQuery}
+        tokenBalance={tokenBalance}  // NEW: pass token balance to header
       />
 
       <div ref={messagesContainerRef} className="chat-messages-scroll">
@@ -468,6 +522,8 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         onTyping={handleTyping}
         activeReply={activeReply}
         clearReply={clearReply}
+        currentUser={currentUser}  // keep as is
+        chatRoom={CHAT_ROOM}       // keep as is
       />
     </div>
   );

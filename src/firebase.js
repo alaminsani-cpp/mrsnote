@@ -17,7 +17,6 @@ import {
   query,
   get
 } from 'firebase/database';
-
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 const firebaseConfig = {
@@ -30,10 +29,10 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const messaging = getMessaging(app);
+
 export { 
   db, 
   ref, 
@@ -49,5 +48,8 @@ export {
   endBefore,
   startAfter,
   query,
-  get
+  get,
+  messaging,
+  getToken,
+  onMessage
 };
