@@ -68,9 +68,9 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     bottomSentinelRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
   }, []);
 
-  // ── New sendMessage: direct Firebase write (no token deduction) ──
+  // ── New sendMessage: direct Firebase write, now accepts replyTo ──
   const sendMessage = useCallback(async (msgData = {}) => {
-    const { text, imageUrl, videoUrl } = msgData;
+    const { text, imageUrl, videoUrl, replyTo } = msgData;
     if (!text?.trim() && !imageUrl && !videoUrl) return;
 
     const message = {
@@ -81,6 +81,17 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     if (text?.trim()) message.text = text.trim();
     if (imageUrl) message.imageUrl = imageUrl;
     if (videoUrl) message.videoUrl = videoUrl;
+    
+    // Include reply data if present
+    if (replyTo) {
+      message.replyTo = {
+        text: replyTo.text || '',
+        sender: replyTo.sender || '',
+        messageId: replyTo.messageId,
+        isImage: replyTo.isImage || false,
+        isVideo: replyTo.isVideo || false,
+      };
+    }
 
     try {
       await push(messagesRef, message);
@@ -215,13 +226,10 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const presenceUserRef = ref(db, `${CHAT_ROOM}/presence/${currentUser.role}`);
-    // Write online timestamp
     set(presenceUserRef, { lastActive: Date.now() });
-    // On disconnect, write offline timestamp
     const disconnectRef = onDisconnect(presenceUserRef);
     disconnectRef.set({ lastActive: Date.now() });
     return () => {
-      // Cleanup: write offline when component unmounts
       set(presenceUserRef, { lastActive: Date.now() }).catch(console.error);
     };
   }, [isOpen, currentUser]);
@@ -381,7 +389,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         onSetMood={setUserMood}
         onClose={onClose}
         onSearch={setSearchQuery}
-        // tokenBalance removed
       />
 
       <div ref={messagesContainerRef} className="chat-messages-scroll">

@@ -33,7 +33,7 @@ async function uploadToCloudinary(file, resourceType = 'video') {
   throw new Error(data.error?.message || 'Upload failed');
 }
 
-// ─── ImgBB for images (keep existing) ───────────────────────
+// ─── ImgBB for images ───────────────────────────────────────
 const IMGBB_API_KEY = '82e4d3726c6019926399bd2fa5c8d4ef';
 
 const ChatInputArea = ({
@@ -41,8 +41,8 @@ const ChatInputArea = ({
   setInputText,
   onSend,
   onTyping,
-  activeReply,
-  clearReply,
+  activeReply,      // reply data from useSwipeToReply
+  clearReply,       // function to clear reply preview
   currentUser,
   chatRoom
 }) => {
@@ -64,10 +64,26 @@ const ChatInputArea = ({
     onTyping();
   };
 
+  // ─── Central send handler ───────────────────────────────────
+  const handleSend = () => {
+    // Include the current reply data if any
+    onSend({
+      text: inputText,
+      replyTo: activeReply,        // ← passes reply info to the message
+    });
+    // Clear the reply preview after sending
+    clearReply();
+    // The parent will clear the input text after send, but we can also reset here
+    // However, we rely on parent's setInputText('') in sendMessage.
+    // We can also clear the input locally to avoid flicker:
+    // setInputText(''); if we want immediate UI feedback.
+    // But onSend already does that, so we keep it as is.
+  };
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSend({ text: inputText });
+      handleSend();
     }
   };
 
@@ -87,7 +103,13 @@ const ChatInputArea = ({
       });
       const data = await response.json();
       if (data.success) {
-        await onSend({ imageUrl: data.data.url, text: inputText.trim() || undefined });
+        // Send the image, include any reply data
+        await onSend({ 
+          imageUrl: data.data.url, 
+          text: inputText.trim() || undefined,
+          replyTo: activeReply,   // include reply
+        });
+        clearReply(); // clear reply after sending image
         setInputText('');
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
       } else {
@@ -111,7 +133,12 @@ const ChatInputArea = ({
 
     try {
       const videoUrl = await uploadToCloudinary(file, 'video');
-      await onSend({ videoUrl, text: inputText.trim() || undefined });
+      await onSend({ 
+        videoUrl, 
+        text: inputText.trim() || undefined,
+        replyTo: activeReply,   // include reply
+      });
+      clearReply(); // clear reply after sending video
       setInputText('');
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
     } catch (err) {
@@ -138,6 +165,7 @@ const ChatInputArea = ({
 
   return (
     <div className="input-area">
+      {/* Reply preview bar – shown if a reply is active */}
       <ChatReplyPreview activeReply={activeReply} onClear={clearReply} />
 
       {uploading && (
@@ -170,7 +198,7 @@ const ChatInputArea = ({
           style={{ display: 'none' }}
         />
 
-        {/* Single media picker button */}
+        {/* Media picker button */}
         <button
           onClick={() => mediaInputRef.current?.click()}
           className={`image-picker-btn ${uploading ? 'disabled' : ''}`}
@@ -186,9 +214,9 @@ const ChatInputArea = ({
           </svg>
         </button>
 
-        {/* Send button */}
+        {/* Send button – uses handleSend */}
         <button
-          onClick={() => onSend({ text: inputText })}
+          onClick={handleSend}
           className={`send-btn ${hasText || uploading ? 'send-btn--active' : 'send-btn--idle'}`}
           disabled={uploading}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', alignSelf: 'center' }}
