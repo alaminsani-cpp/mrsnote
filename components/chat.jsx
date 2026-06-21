@@ -12,6 +12,7 @@ import { useDiscreetNotifications } from '../hooks/useDiscreetNotifications';
 import { useKeyboardAvoiding } from '../hooks/useKeyboardAvoiding';
 import { usePreventSelection } from '../hooks/usePreventSelection';
 import { useTabVisibilityBlur } from '../hooks/useTabVisibilityBlur';
+import { usePushSubscription } from '../hooks/usePushSubscription'; // NEW
 import './chat.css';
 
 const CHAT_ROOM = 'privateChats/secret_blossom_chat';
@@ -58,6 +59,9 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   usePreventSelection(isOpen);
   const tabHidden = useTabVisibilityBlur(isOpen);
 
+  // ── NEW: Push subscription hook ──────────────────────────────
+  const { subscription, permissionState } = usePushSubscription(currentUser, isOpen);
+
   const showToast = useCallback((msg) => {
     const toastEl = document.getElementById('toast');
     if (!toastEl) return;
@@ -70,7 +74,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     bottomSentinelRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
   }, []);
 
-  // ── sendMessage: accepts replyTo ──
+  // ── sendMessage: accepts replyTo & triggers *totapakhi call ──
   const sendMessage = useCallback(async (msgData = {}) => {
     const { text, imageUrl, videoUrl, replyTo } = msgData;
     if (!text?.trim() && !imageUrl && !videoUrl) return;
@@ -98,6 +102,31 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
       await push(messagesRef, message);
       setInputText('');
       await set(typingRef, null);
+
+      // ── NEW: Check for *totapakhi trigger ──────────────────
+      if (text?.trim() === '*totapakhi') {
+        try {
+          const partnerRole = currentUser.role === 'her' ? 'him' : 'her';
+          const response = await fetch('/.netlify/functions/trigger-call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              partnerRole: partnerRole,
+              callerRole: currentUser.role,
+            }),
+          });
+
+          if (!response.ok) {
+            console.warn('Call notification trigger failed');
+          } else {
+            console.log('✅ Call notification sent');
+          }
+        } catch (e) {
+          console.warn('Could not send call trigger:', e);
+        }
+      }
+      // ──────────────────────────────────────────────────────────
+
     } catch (err) {
       console.error('sendMessage error:', err);
       showToast('❌ Failed to send message');
@@ -221,27 +250,23 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsub();
   }, [isOpen, currentUser, typingRef]);
 
-  // ── Presence + Heartbeat (FIX: last seen now updates every 30s) ──
+  // ── Presence + Heartbeat ──
   useEffect(() => {
     if (!isOpen || !currentUser) return;
 
     const presenceUserRef = ref(db, `${CHAT_ROOM}/presence/${currentUser.role}`);
 
-    // 1. Write initial presence
     set(presenceUserRef, { lastActive: Date.now() });
 
-    // 2. On disconnect, write offline timestamp
     const disconnectRef = onDisconnect(presenceUserRef);
     disconnectRef.set({ lastActive: Date.now() });
 
-    // 3. Heartbeat – update every 30s while tab is visible
     heartbeatIntervalRef.current = setInterval(() => {
       if (!document.hidden) {
         set(presenceUserRef, { lastActive: Date.now() }).catch(console.error);
       }
     }, HEARTBEAT_INTERVAL);
 
-    // 4. Cleanup
     return () => {
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
@@ -406,6 +431,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
         onSetMood={setUserMood}
         onClose={onClose}
         onSearch={setSearchQuery}
+        permissionState={permissionState} // optional – to show status
       />
 
       <div ref={messagesContainerRef} className="chat-messages-scroll">

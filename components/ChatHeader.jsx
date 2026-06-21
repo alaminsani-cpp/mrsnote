@@ -16,6 +16,7 @@ const ChatHeader = ({
   onSetMood,
   onClose,
   onSearch,
+  permissionState, // NEW: 'granted' | 'denied' | 'default'
 }) => {
   const [showSearch, setShowSearch] = useState(false);
   const [localQuery, setLocalQuery] = useState('');
@@ -41,6 +42,31 @@ const ChatHeader = ({
 
   const avatarImage = partnerAvatar === 'her' ? himAvatar : herAvatar;
   const isHer = partnerAvatar === 'her';
+
+  // ─── Notification permission icon ──────────────────────────
+  const renderPermissionIcon = () => {
+    if (!permissionState) return null;
+    if (permissionState === 'granted') {
+      return (
+        <span className="icon-btn" title="Notifications enabled" style={{ color: '#4dd68c' }}>
+          🔔
+        </span>
+      );
+    }
+    if (permissionState === 'denied') {
+      return (
+        <span className="icon-btn" title="Notifications blocked" style={{ color: '#e8837a' }}>
+          🔕
+        </span>
+      );
+    }
+    // default (not asked yet)
+    return (
+      <span className="icon-btn" title="Notifications not requested" style={{ color: 'var(--text-muted)' }}>
+        🔔
+      </span>
+    );
+  };
 
   return (
     <div className="chat-header">
@@ -88,6 +114,9 @@ const ChatHeader = ({
 
         {/* Actions */}
         <div className="header-actions">
+          {/* Notification permission status */}
+          {renderPermissionIcon()}
+
           {/* Search button / bar */}
           {showSearch ? (
             <div className="search-bar">
