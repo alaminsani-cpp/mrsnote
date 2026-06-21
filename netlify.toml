@@ -1,8 +1,0 @@
-[functions]
-  directory = "netlify/functions"
-
-[functions."processActiveTime"]
-  schedule = "* * * * *"   # every minute
-
-[[plugins]]
-  package = "@netlify/plugin-functions-install-core"
