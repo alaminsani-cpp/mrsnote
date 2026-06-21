@@ -328,12 +328,13 @@ const ChatMessage = memo(({
       </div>
 
       {pickerVisible && (
-        <ReactionPicker
-          onSelect={handleReactionSelect}
-          onClose={() => setPickerVisible(false)}
-          messageElement={messageRef.current}
-        />
-      )}
+  <ReactionPicker
+    onSelect={handleReactionSelect}
+    onClose={() => setPickerVisible(false)}
+    messageElement={messageRef.current}
+    isSent={isSent}   // 👈 add this
+  />
+)}
     </>
   );
 }, (prev, next) => {
