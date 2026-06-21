@@ -2,7 +2,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import {
   db, ref, push, onChildAdded, onChildChanged, set, onValue, onDisconnect,
-  orderByKey, limitToLast, endBefore, startAfter, query, get, serverTimestamp
+  orderByKey, limitToLast, endBefore, startAfter, query, get
 } from '../src/firebase';
 import ChatHeader from './ChatHeader';
 import ChatMessageList from './ChatMessageList';
@@ -17,6 +17,7 @@ import './chat.css';
 const CHAT_ROOM = 'privateChats/secret_blossom_chat';
 const PAGE_SIZE = 20;
 const TYPING_THROTTLE_MS = 3000;
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 
 const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partnerAvatarEmoji }) => {
   const [messages, setMessages]               = useState([]);
@@ -44,6 +45,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
   const loadingOlderRef      = useRef(false);
   const hasMoreRef           = useRef(true);
   const realtimeListenerRef  = useRef(false);
+  const heartbeatIntervalRef = useRef(null);
 
   const messagesRef = useMemo(() => ref(db, `${CHAT_ROOM}/messages`), []);
   const typingRef   = useMemo(() => ref(db, `${CHAT_ROOM}/typing`),   []);
@@ -68,7 +70,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     bottomSentinelRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
   }, []);
 
-  // ── New sendMessage: direct Firebase write, now accepts replyTo ──
+  // ── sendMessage: accepts replyTo ──
   const sendMessage = useCallback(async (msgData = {}) => {
     const { text, imageUrl, videoUrl, replyTo } = msgData;
     if (!text?.trim() && !imageUrl && !videoUrl) return;
@@ -82,7 +84,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     if (imageUrl) message.imageUrl = imageUrl;
     if (videoUrl) message.videoUrl = videoUrl;
     
-    // Include reply data if present
     if (replyTo) {
       message.replyTo = {
         text: replyTo.text || '',
@@ -96,7 +97,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     try {
       await push(messagesRef, message);
       setInputText('');
-      // Clear typing indicator after sending
       await set(typingRef, null);
     } catch (err) {
       console.error('sendMessage error:', err);
@@ -104,7 +104,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     }
   }, [currentUser, messagesRef, typingRef, showToast]);
 
-  // ── Load messages (unchanged) ──
+  // ── Load messages ──
   const loadMessages = useCallback(async (lastKey = null) => {
     if (loadingOlderRef.current) return;
     if (lastKey && !hasMoreRef.current) return;
@@ -148,7 +148,6 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
           .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       });
 
-      // Mark as read (optional – we keep it)
       if (!lastKey) {
         const unread = loaded.filter(m => m.role !== currentUser.role && !m.readBy?.[currentUser.role]);
         await Promise.all(
@@ -172,7 +171,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     loadMessages();
   }, [isOpen, currentUser, loadMessages]);
 
-  // ── Real‑time new messages (unchanged) ──
+  // ── Real‑time new messages ──
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     if (realtimeListenerRef.current) return;
@@ -222,14 +221,32 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsub();
   }, [isOpen, currentUser, typingRef]);
 
-  // ── Presence (online/offline) – simplified: write on mount and on disconnect ──
+  // ── Presence + Heartbeat (FIX: last seen now updates every 30s) ──
   useEffect(() => {
     if (!isOpen || !currentUser) return;
+
     const presenceUserRef = ref(db, `${CHAT_ROOM}/presence/${currentUser.role}`);
+
+    // 1. Write initial presence
     set(presenceUserRef, { lastActive: Date.now() });
+
+    // 2. On disconnect, write offline timestamp
     const disconnectRef = onDisconnect(presenceUserRef);
     disconnectRef.set({ lastActive: Date.now() });
+
+    // 3. Heartbeat – update every 30s while tab is visible
+    heartbeatIntervalRef.current = setInterval(() => {
+      if (!document.hidden) {
+        set(presenceUserRef, { lastActive: Date.now() }).catch(console.error);
+      }
+    }, HEARTBEAT_INTERVAL);
+
+    // 4. Cleanup
     return () => {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
       set(presenceUserRef, { lastActive: Date.now() }).catch(console.error);
     };
   }, [isOpen, currentUser]);
@@ -264,7 +281,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     return () => unsub();
   }, [isOpen, currentUser, moodRef]);
 
-  // ── Layout (unchanged) ──
+  // ── Layout ──
   useLayoutEffect(() => {
     if (messages.length === 0) return;
     if (isInitialLoad.current) {
@@ -285,7 +302,7 @@ const Chat = ({ isOpen, onClose, currentUser, partnerName, partnerAvatar, partne
     }
   }, [messages, scrollToBottom]);
 
-  // ── Scroll to load older (unchanged) ──
+  // ── Scroll to load older ──
   useEffect(() => {
     if (!isOpen || !currentUser) return;
     const container = messagesContainerRef.current;
