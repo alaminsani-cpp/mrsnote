@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 
 const REACTIONS = [
   { emoji: '❤️', label: 'heart' },
-  { emoji: '😂', label: 'laugh' },
+  { emoji: '🤣', label: 'laugh' },
   { emoji: '😮', label: 'wow' },
   { emoji: '😢', label: 'sad' },
   { emoji: '😠', label: 'angry' },
